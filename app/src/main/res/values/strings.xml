@@ -1,4 +1,14 @@
 <resources>
     <string name="app_name">Test Watch</string>
     <string name="hello_world">Hello, %1$s!</string>
+    <string name="no_connection_message">No connection to Health Tracking Service.</string>
+    <string name="no_heart_rate_available_title">Sensor Error</string>
+    <string name="no_heart_rate_available_message">Heart rate measurement not available on this device.</string>
+    <string name="no_permission_title">No Permission</string>
+    <string name="no_permission_message">User permission is required. Grant permission in App settings.</string>
+    <string name="sdk_policy_error">SDK Policy Error occurred</string>
+    <string name="no_off_body_sensor_title">Off-body sensor error</string>
+    <string name="no_off_body_sensor_message">Could not setup off-body sensor. Make sure it\'s available on the device.</string>
+    <string name="device_removed_during_measurement">Watch removed. Measurement stopped.</string>
+    <string name="device_not_worn">Please wear the watch.</string>
 </resources>
