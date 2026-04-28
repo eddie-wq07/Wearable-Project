@@ -9,7 +9,18 @@
 /.idea/assetWizardSettings.xml
 .DS_Store
 /build
+**/build/
 /captures
 .externalNativeBuild
 .cxx
 local.properties
+
+# Compiled outputs
+*.apk
+*.aab
+*.dex
+
+
+# HRTracker reference — exclude large binaries, keep source
+HRTracker/app/libs/
+HRTracker/.gradle/

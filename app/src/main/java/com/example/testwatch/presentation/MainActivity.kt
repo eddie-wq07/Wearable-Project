@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity(), TrackerObserver, SensorEventListener {
 
     private val connected = AtomicBoolean(false)
     private val isMeasurementRunning = AtomicBoolean(false)
-    private val deviceWorn = AtomicBoolean(false)
+    private val deviceWorn = AtomicBoolean(true)
 
     private var heartRateAvailable = false
     private var heartRateListener: HeartRateListener? = null
@@ -60,10 +60,12 @@ class MainActivity : ComponentActivity(), TrackerObserver, SensorEventListener {
     private var hrValue by mutableStateOf("--")
     private var hrStatus by mutableStateOf("--")
     private var isMeasuring by mutableStateOf(false)
+    private var isReady by mutableStateOf(false)
 
     private val connectionObserver = object : ConnectionObserver {
         override fun onConnectionResult(isConnected: Boolean) {
             connected.set(isConnected)
+            if (!isConnected) runOnUiThread { isReady = false }
         }
 
         override fun onHeartRateAvailability(isAvailable: Boolean) {
@@ -72,6 +74,9 @@ class MainActivity : ComponentActivity(), TrackerObserver, SensorEventListener {
                 heartRateListener = HeartRateListener()
                 heartRateListener!!.setTrackerDataSubject(trackerDataSubject)
                 connectionManager!!.initHeartRate(heartRateListener)
+                runOnUiThread { isReady = true }
+            } else {
+                runOnUiThread { isReady = false }
             }
         }
     }
@@ -79,13 +84,13 @@ class MainActivity : ComponentActivity(), TrackerObserver, SensorEventListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val permission = if (Build.VERSION.SDK_INT >= 36) {
-            "android.permission.health.READ_HEART_RATE"
+        val permissions = if (Build.VERSION.SDK_INT >= 36) {
+            arrayOf("android.permission.health.READ_HEART_RATE", Manifest.permission.BODY_SENSORS)
         } else {
-            Manifest.permission.BODY_SENSORS
+            arrayOf(Manifest.permission.BODY_SENSORS)
         }
-        if (checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_DENIED) {
-            requestPermissions(arrayOf(permission), 0)
+        if (permissions.any { checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_DENIED }) {
+            requestPermissions(permissions, 0)
         }
 
         trackerDataSubject = TrackerDataSubject()
@@ -107,6 +112,7 @@ class MainActivity : ComponentActivity(), TrackerObserver, SensorEventListener {
                 hrValue = hrValue,
                 hrStatus = hrStatus,
                 isMeasuring = isMeasuring,
+                isReady = isReady,
                 onStartClick = { startMeasurement() },
                 onStopClick = { endMeasurement() },
                 onResetClick = { resetValues() },
@@ -167,8 +173,10 @@ class MainActivity : ComponentActivity(), TrackerObserver, SensorEventListener {
     private fun endMeasurement() {
         heartRateListener?.stopTracker()
         isMeasurementRunning.set(false)
-        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        isMeasuring = false
+        runOnUiThread {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            isMeasuring = false
+        }
     }
 
     private fun resetValues() {
@@ -228,6 +236,7 @@ fun WearApp(
     hrValue: String,
     hrStatus: String,
     isMeasuring: Boolean,
+    isReady: Boolean,
     onStartClick: () -> Unit,
     onStopClick: () -> Unit,
     onResetClick: () -> Unit,
@@ -271,7 +280,7 @@ fun WearApp(
                     }
                     item {
                         Text(
-                            text = "Status: $hrStatus",
+                            text = if (!isReady) "Connecting..." else "Status: $hrStatus",
                             modifier = Modifier.fillMaxWidth(),
                             style = MaterialTheme.typography.bodyLarge,
                         )
@@ -280,7 +289,7 @@ fun WearApp(
                         Button(
                             onClick = onStartClick,
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = !isMeasuring,
+                            enabled = isReady && !isMeasuring,
                         ) {
                             Text("Start")
                         }
