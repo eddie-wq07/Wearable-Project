@@ -1,6 +1,7 @@
 package com.example.testwatch.presentation
 
 import android.Manifest
+import android.app.ActivityManager
 import android.app.AlertDialog
 import android.content.Intent
 import android.hardware.Sensor
@@ -123,8 +124,20 @@ class MainActivity : ComponentActivity(), TrackerObserver, SensorEventListener {
 
     override fun onResume() {
         super.onResume()
+        enterKioskMode()
         offBodySensor?.let {
             mSensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+    }
+
+    private fun enterKioskMode() {
+        val am = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        if (am.lockTaskModeState == ActivityManager.LOCK_TASK_MODE_NONE) {
+            try {
+                startLockTask()
+            } catch (t: Throwable) {
+                android.util.Log.w(getString(R.string.app_name), "startLockTask failed: ${t.message}")
+            }
         }
     }
 
