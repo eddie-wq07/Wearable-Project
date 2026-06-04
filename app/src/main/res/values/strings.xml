@@ -11,4 +11,5 @@
     <string name="no_off_body_sensor_message">Could not setup off-body sensor. Make sure it\'s available on the device.</string>
     <string name="device_removed_during_measurement">Watch removed. Measurement stopped.</string>
     <string name="device_not_worn">Please wear the watch.</string>
+    <string name="kiosk_paused">Kiosk paused. App can now be exited.</string>
 </resources>

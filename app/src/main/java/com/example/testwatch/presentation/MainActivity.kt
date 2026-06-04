@@ -3,6 +3,7 @@ package com.example.testwatch.presentation
 import android.Manifest
 import android.app.ActivityManager
 import android.app.AlertDialog
+import android.app.admin.DevicePolicyManager
 import android.content.Intent
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -12,6 +13,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -42,8 +44,12 @@ import com.example.testwatch.OffBodyStatus
 import com.example.testwatch.R
 import com.example.testwatch.TrackerDataSubject
 import com.example.testwatch.TrackerObserver
+import com.example.testwatch.admin.HrDeviceAdminReceiver
+import com.example.testwatch.kiosk.PinManager
 import com.example.testwatch.presentation.theme.TestWatchTheme
 import java.util.concurrent.atomic.AtomicBoolean
+
+private enum class KioskScreen { Main, PinSetup, PinUnlock }
 
 class MainActivity : ComponentActivity(), TrackerObserver, SensorEventListener {
 
@@ -58,10 +64,14 @@ class MainActivity : ComponentActivity(), TrackerObserver, SensorEventListener {
     private var mSensorManager: SensorManager? = null
     private var offBodySensor: Sensor? = null
 
+    private lateinit var pinManager: PinManager
+    private var kioskPaused = false
+
     private var hrValue by mutableStateOf("--")
     private var hrStatus by mutableStateOf("--")
     private var isMeasuring by mutableStateOf(false)
     private var isReady by mutableStateOf(false)
+    private var screen by mutableStateOf(KioskScreen.Main)
 
     private val connectionObserver = object : ConnectionObserver {
         override fun onConnectionResult(isConnected: Boolean) {
@@ -84,6 +94,8 @@ class MainActivity : ComponentActivity(), TrackerObserver, SensorEventListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        pinManager = PinManager(this)
 
         val permissions = if (Build.VERSION.SDK_INT >= 36) {
             arrayOf("android.permission.health.READ_HEART_RATE", Manifest.permission.BODY_SENSORS)
@@ -108,35 +120,71 @@ class MainActivity : ComponentActivity(), TrackerObserver, SensorEventListener {
 
         createConnectionManager()
 
+        screen = if (pinManager.isPinSet()) KioskScreen.Main else KioskScreen.PinSetup
+
         setContent {
-            WearApp(
-                hrValue = hrValue,
-                hrStatus = hrStatus,
-                isMeasuring = isMeasuring,
-                isReady = isReady,
-                onStartClick = { startMeasurement() },
-                onStopClick = { endMeasurement() },
-                onResetClick = { resetValues() },
-                onSettingsClick = { openAppSettings(packageName) }
-            )
+            when (screen) {
+                KioskScreen.Main -> WearApp(
+                    hrValue = hrValue,
+                    hrStatus = hrStatus,
+                    isMeasuring = isMeasuring,
+                    isReady = isReady,
+                    onStartClick = { startMeasurement() },
+                    onStopClick = { endMeasurement() },
+                    onResetClick = { resetValues() },
+                    onLogoutClick = { screen = KioskScreen.PinUnlock },
+                )
+                KioskScreen.PinSetup -> PinSetupScreen(
+                    onPinChosen = { pin ->
+                        pinManager.setPin(pin)
+                        screen = KioskScreen.Main
+                    },
+                )
+                KioskScreen.PinUnlock -> PinUnlockScreen(
+                    verify = { pinManager.verify(it) },
+                    onCorrectPin = {
+                        exitKioskMode()
+                        screen = KioskScreen.Main
+                    },
+                    onCancel = { screen = KioskScreen.Main },
+                )
+            }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        enterKioskMode()
+        if (!kioskPaused) enterKioskMode()
         offBodySensor?.let {
             mSensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
     }
 
     private fun enterKioskMode() {
+        val dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        if (!dpm.isLockTaskPermitted(packageName)) {
+            Log.w(TAG, "Lock task not permitted — app is not Device Owner. Skipping.")
+            return
+        }
         val am = getSystemService(ACTIVITY_SERVICE) as ActivityManager
         if (am.lockTaskModeState == ActivityManager.LOCK_TASK_MODE_NONE) {
             try {
                 startLockTask()
             } catch (t: Throwable) {
-                android.util.Log.w(getString(R.string.app_name), "startLockTask failed: ${t.message}")
+                Log.w(TAG, "startLockTask failed: ${t.message}")
+            }
+        }
+    }
+
+    private fun exitKioskMode() {
+        val am = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        if (am.lockTaskModeState != ActivityManager.LOCK_TASK_MODE_NONE) {
+            try {
+                stopLockTask()
+                kioskPaused = true
+                Toast.makeText(this, R.string.kiosk_paused, Toast.LENGTH_LONG).show()
+            } catch (t: Throwable) {
+                Log.w(TAG, "stopLockTask failed: ${t.message}")
             }
         }
     }
@@ -157,7 +205,7 @@ class MainActivity : ComponentActivity(), TrackerObserver, SensorEventListener {
             connectionManager = ConnectionManager(connectionObserver)
             connectionManager!!.connect(this, applicationContext)
         } catch (t: Throwable) {
-            android.util.Log.e(getString(R.string.app_name), t.message ?: "Connection error")
+            Log.e(TAG, t.message ?: "Connection error")
         }
     }
 
@@ -242,6 +290,10 @@ class MainActivity : ComponentActivity(), TrackerObserver, SensorEventListener {
     }
 
     override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
+
+    private companion object {
+        const val TAG = "MainActivity"
+    }
 }
 
 @Composable
@@ -253,7 +305,7 @@ fun WearApp(
     onStartClick: () -> Unit,
     onStopClick: () -> Unit,
     onResetClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onLogoutClick: () -> Unit,
 ) {
     TestWatchTheme {
         AppScaffold {
@@ -263,13 +315,13 @@ fun WearApp(
                 scrollState = listState,
                 edgeButton = {
                     EdgeButton(
-                        onClick = onSettingsClick,
+                        onClick = onLogoutClick,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer,
                             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                         ),
                     ) {
-                        Text("Settings")
+                        Text("Log out")
                     }
                 },
             ) { contentPadding ->
