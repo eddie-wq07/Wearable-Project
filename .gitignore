@@ -20,7 +20,5 @@ local.properties
 *.aab
 *.dex
 
+.claude/
 
-# HRTracker reference — exclude large binaries, keep source
-HRTracker/app/libs/
-HRTracker/.gradle/
