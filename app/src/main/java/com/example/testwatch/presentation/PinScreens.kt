@@ -21,9 +21,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.ButtonDefaults
 import androidx.wear.compose.material3.MaterialTheme
+import androidx.wear.compose.material3.ScreenScaffold
 import androidx.wear.compose.material3.Text
 import com.example.testwatch.KioskConfig
 import com.example.testwatch.presentation.theme.TestWatchTheme
@@ -43,43 +45,48 @@ fun PinPromptScreen(
     var entered by remember { mutableStateOf("") }
 
     TestWatchTheme {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (subtitle != null) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            PinDots(entered.length, pinLength)
-            Spacer(Modifier.height(2.dp))
-            Keypad(
-                onDigit = { d ->
-                    if (entered.length < pinLength) {
-                        val next = entered + d
-                        entered = next
-                        if (next.length == pinLength) {
-                            onSubmit(next)
-                            entered = ""
-                        }
+        AppScaffold {
+            ScreenScaffold { contentPadding ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(contentPadding)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (subtitle != null) {
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
-                },
-                onBackspace = { if (entered.isNotEmpty()) entered = entered.dropLast(1) },
-                onCancel = onCancel,
-                showCancel = showCancel,
-            )
+                    PinDots(entered.length, pinLength)
+                    Spacer(Modifier.height(2.dp))
+                    Keypad(
+                        onDigit = { d ->
+                            if (entered.length < pinLength) {
+                                val next = entered + d
+                                entered = next
+                                if (next.length == pinLength) {
+                                    onSubmit(next)
+                                    entered = ""
+                                }
+                            }
+                        },
+                        onBackspace = { if (entered.isNotEmpty()) entered = entered.dropLast(1) },
+                        onCancel = onCancel,
+                        showCancel = showCancel,
+                    )
+                }
+            }
         }
     }
 }
@@ -150,10 +157,7 @@ private fun KeypadKey(label: String, onClick: () -> Unit) {
     Button(
         onClick = onClick,
         modifier = Modifier.size(width = 44.dp, height = 36.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-        ),
+        colors = ButtonDefaults.filledTonalButtonColors(),
     ) {
         Text(
             text = label,
@@ -161,39 +165,6 @@ private fun KeypadKey(label: String, onClick: () -> Unit) {
             fontWeight = FontWeight.SemiBold,
         )
     }
-}
-
-@Composable
-fun PinSetupScreen(
-    pinLength: Int = KioskConfig.PIN_LENGTH,
-    onPinChosen: (String) -> Unit,
-) {
-    var first by remember { mutableStateOf<String?>(null) }
-    var mismatch by remember { mutableStateOf(false) }
-
-    PinPromptScreen(
-        title = if (first == null) "Set kiosk PIN" else "Confirm PIN",
-        subtitle = when {
-            mismatch -> "Didn't match. Try again."
-            first == null -> "$pinLength digits"
-            else -> "Re-enter"
-        },
-        pinLength = pinLength,
-        showCancel = false,
-        onSubmit = { entry ->
-            val firstSnapshot = first
-            if (firstSnapshot == null) {
-                first = entry
-                mismatch = false
-            } else if (firstSnapshot == entry) {
-                onPinChosen(entry)
-            } else {
-                first = null
-                mismatch = true
-            }
-        },
-        onCancel = {},
-    )
 }
 
 @Composable

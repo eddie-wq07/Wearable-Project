@@ -22,3 +22,5 @@ local.properties
 
 .claude/
 
+# Server credentials (drop your SSH private key here locally only)
+mobile/src/main/assets/server_key.pem

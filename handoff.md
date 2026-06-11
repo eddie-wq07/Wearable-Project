@@ -6,106 +6,201 @@ Living doc. Update at the end of every working session so the next session can p
 
 ## 1. Goal
 
-Build a working pipeline that collects health data from a **Samsung Galaxy Watch**, optionally relays it through a paired **Android phone**, and forwards it to a **backend** for storage. Used by the UBC Data + AI Lab (Sauder School of Business) in collaboration with SRCA.
+Build a working pipeline that collects health data from a **Samsung Galaxy Watch**, relays it through a paired **Samsung phone**, and forwards it to a **lab-hosted SQLite server** for storage. Used by the UBC Data + AI Lab (Sauder School of Business) in collaboration with SRCA.
 
 The deployment target is a research study: ~60–80 Galaxy Watches running in **kiosk mode** so participants cannot leave the app.
 
-### Prototype phases (overall plan)
+### Hardware (as of current session)
+- **Watch:** Galaxy Watch 8 (SHJE), model `SM-L320`. Wear OS, Samsung Health Sensor SDK 1.4.1, dev-mode toggle on, paired to phone via Galaxy Wearable.
+- **Phone:** Galaxy A35 5G, model `SM-A356W`. Already paired to the watch.
+- **Carrier:** Rogers (data throttled after fast-data cap, still fine for batched JSON uploads).
+
+### Prototype phases
 | # | Phase | Status |
 |---|---|---|
 | 1 | Basic Wear OS app skeleton | ✅ Done |
-| 2 | SDK connection on watch (Samsung Health Sensor SDK → live HR) | ✅ Done — live HR streaming verified |
-| 3 | On-watch data collection → phone → backend relay | ⏳ Not started |
-| 4 | Add more sensors (PPG, ECG, SpO2, skin temp, accelerometer, BIA) | ⏳ Not started |
+| 2 | SDK connection on watch (Samsung Health Sensor SDK → live HR) | ✅ Done |
+| 3 | On-watch data collection → phone → backend relay | 🟡 In progress (code in this session) |
+| 4 | Add more sensors (PPG, ECG, SpO2, skin temp, accel, BIA) | ⏳ Not started |
 | 5 | Production hardening, kiosk/study mode, reliability | 🟡 Kiosk built, partial hardening, distribution-partner submission TODO |
 
 ---
 
-## 2. Current state of the codebase
+## 2. Architecture
 
-Single Gradle module `:app`, namespace `com.example.testwatch`. Wear OS standalone app. Compose UI. Samsung Health Sensor SDK 1.4.1 (`app/libs/samsung-health-sensor-api-1.4.1.aar`).
+Two Gradle modules in one project. Both share `applicationId = com.example.testwatch` — this is what bridges them via Wear Data Layer.
 
 ```
-app/src/main/java/com/example/testwatch/
-├── ConnectionManager.java       Samsung SDK service connection
+┌──────────── Galaxy Watch 8 ────────────┐    ┌──────────── Galaxy A35 ────────────┐    ┌────── Server ──────┐
+│ Samsung SDK (HR_CONTINUOUS, ~1Hz)      │    │ HrBatchListenerService            │    │ SFTP inbox dir     │
+│   │                                    │    │   (WearableListenerService)       │    │   /var/data/hr_in… │
+│   ▼                                    │ BT │   │                               │    │                    │
+│ HrTrackingService (foreground)         │───▶│   ▼                               │    │ (lab ingestion     │
+│   │ writes each sample                 │    │ phone Room (hr_phone.db)         │    │  reads files into  │
+│   ▼                                    │    │   │                               │    │  SQLite)           │
+│ watch Room (hr.db)                     │    │   ▼                               │    │                    │
+│   │ every 5 min                        │    │ UploadWorker (WorkManager)        │───▶│                    │
+│   ▼                                    │    │   SFTP via sshj, retries on fail  │SFTP│                    │
+│ Wearable.MessageClient                 │    │                                   │    │                    │
+│   path "/hr_batch" (JSON, ≤500/batch)  │    │                                   │    │                    │
+└────────────────────────────────────────┘    └───────────────────────────────────┘    └────────────────────┘
+```
+
+### Module layout
+```
+:app   (Wear OS) — applicationId com.example.testwatch
+:mobile         — applicationId com.example.testwatch (same; required for Wear Data Layer pairing)
+```
+
+### Watch module (`:app`)
+```
+java/com/example/testwatch/
+├── ConnectionManager.java       Samsung SDK service connection (null-safe re activity)
 ├── ConnectionObserver.java
 ├── HeartRateListener.java       HEART_RATE_CONTINUOUS subscriber
 ├── TrackerDataSubject.java
 ├── TrackerObserver.java
 ├── OffBodyStatus.java
-├── KioskConfig.kt               PIN length, boot-notify constants
-├── BootReceiver.kt              Auto-relaunch on boot (telemetry only)
-├── admin/HrDeviceAdminReceiver.kt  Device Admin / DPC receiver
-├── kiosk/PinManager.kt          Salted PBKDF2-SHA256 PIN in SharedPrefs
+├── KioskConfig.kt               PIN = "2365", batch constants, telemetry URL
+├── BootReceiver.kt              Telemetry on boot
+├── admin/
+│   ├── HrDeviceAdminReceiver.kt Device Admin / DPC receiver
+│   └── SetParticipantIdReceiver.kt   ADB-broadcast → SharedPrefs
+├── kiosk/PinManager.kt          Fixed-PIN check (== KioskConfig.PIN)
+├── data/
+│   ├── HrSample.kt              Room entity (id, ts, bpm, status, synced)
+│   ├── HrDao.kt                 unsynced / markSynced / pruneSynced / count
+│   ├── HrDatabase.kt            hr.db
+│   └── ParticipantStore.kt      SharedPrefs wrapper for participant_id
+├── tracking/
+│   ├── HrTrackingService.kt     Foreground service: SDK + Room writes + sync loop
+│   └── TrackingState.kt         MutableStateFlow snapshot for the UI
+├── sync/
+│   └── BatchSerializer.kt       kotlinx-serialization JSON wire format
 └── presentation/
-    ├── MainActivity.kt          HR UI + lock-task + off-body sensor
-    ├── PinScreens.kt            Setup + Unlock keypads
+    ├── MainActivity.kt          Live BPM display + kiosk + Log out
+    ├── PinScreens.kt            Unlock keypad
     └── theme/Theme.kt
 ```
 
-**Build targets:** minSdk 30, targetSdk/compileSdk 36, Java 11, Compose enabled, `useLibrary("wear-sdk")`.
+### Mobile module (`:mobile`)
+```
+java/com/example/testwatch/mobile/
+├── StatusActivity.kt            Single TextView "Companion installed. Running in background."
+├── boot/BootReceiver.kt         Schedules a one-shot upload on phone boot
+├── data/
+│   ├── PhoneHrSample.kt         Mirror entity (participant_id, ts, bpm, status, uploaded)
+│   ├── PhoneHrDao.kt
+│   └── PhoneHrDatabase.kt       hr_phone.db
+├── wear/
+│   └── HrBatchListenerService.kt   Decodes /hr_batch → Room → enqueues UploadWorker
+└── upload/
+    ├── ServerConfig.kt          HOST, PORT, USER, REMOTE_DIR — TODOs to fill in
+    └── UploadWorker.kt          sshj SFTP upload, retries with exponential backoff
+```
 
 ---
 
-## 3. What's working as of last session
+## 3. Current state
 
-- [x] App installs on Galaxy Watch over ADB-WiFi.
-- [x] Runtime permissions accepted (`BODY_SENSORS` + `health.READ_HEART_RATE`).
-- [x] Samsung Health Tracking Service connects (`Status: 1` = valid HR reading).
-- [x] Live BPM streams when Start is pressed while watch is worn.
-- [x] Off-body sensor hooked up (verify-this still pending).
-- [x] Kiosk framework in place (Device Admin receiver, lock-task code path, HOME intent filter).
+- [x] App installs on Galaxy Watch 8 over ADB-WiFi.
+- [x] Runtime permissions accepted (`BODY_SENSORS`, `health.READ_HEART_RATE`, on API 33+ `POST_NOTIFICATIONS`).
+- [x] Samsung Health Tracking Service connects (status 1 = valid HR).
+- [x] **Continuous background tracking** via `HrTrackingService` (foreground service, type `health`). No Start/Stop UI — opens straight to live BPM display.
+- [x] HR samples written to Room (`hr.db`) on every callback.
+- [x] **5-min sync loop** pushes unsynced samples to phone via `Wearable.MessageClient` (path `/hr_batch`).
+- [x] **Phone companion** receives batches, mirrors to Room (`hr_phone.db`), enqueues SFTP upload.
+- [x] Kiosk + 2365 PIN unlock.
 
-## 4. What's NOT working / known issues
+### Pending verification on device
+- [ ] Phone build installs cleanly.
+- [ ] Watch → phone Data Layer round-trip (look at `adb logcat` on the phone for `HrBatchListener`).
+- [ ] SFTP upload reaches the server (depends on filling in `ServerConfig`).
 
-- [ ] **PIN setup UI is broken.** Letters clip on round watch (no `ScreenScaffold` safe-area padding). Buttons render light-on-light due to `surfaceContainer` + `onSurface` color combo. `PinScreens.kt:46-52` and `:152-156`.
-- [ ] **PIN is configurable rather than fixed at 2365.** Product requirement is a hardcoded 2365 kiosk PIN. Setup flow should be removed and `PinManager.verify` should compare against `"2365"`. Drop the PBKDF2 + SharedPrefs storage path for now.
-- [ ] **Kiosk lock-task is no-op on dev installs.** `enterKioskMode()` checks `isLockTaskPermitted` — false until the watch is provisioned as Device Owner (see §6). Expected and fine for dev; needs provisioning for study.
-- [ ] **No data persistence.** HR values only flow to `mutableStateOf` in `MainActivity`. Nothing logged, stored, or sent.
-- [ ] **No phone-relay or backend upload.** `KioskConfig.BOOT_NOTIFY_URL` is still `https://example.com/api/watch/boot`.
+---
 
-## 5. Immediate next priorities (next session)
+## 4. Setup the user must do before the pipeline lands data on the server
 
-1. **Hardcode PIN 2365 + fix PIN screens UI** — drop the setup flow, fix round-watch padding via `AppScaffold` + `ScreenScaffold`, fix contrast via `ButtonDefaults.filledTonalButtonColors()`.
-2. **Add Room database for HR samples** — table `(timestamp_ms, bpm, status)`. Buffer survives screen-offs, app kills, and the phone being out of range.
-3. **Pick + implement upload transport** — choose one:
-   - **(a) Wear Data Layer → phone → cloud** (battery-friendly; uses phone's data; needs companion phone module).
-   - **(b) Direct HTTPS from watch** (simpler; needs watch on WiFi or LTE).
-4. **Stand up the backend endpoint** — decide: Firebase / lab REST API / Google Sheets / etc.
+1. **Fill in `mobile/src/main/java/com/example/testwatch/mobile/upload/ServerConfig.kt`:**
+   - Currently set: `HOST = "misr.sauder.ubc.ca"`, `PORT = 16800`, `USER = "edward"`, `REMOTE_DIR = "hr_inbox"`.
+   - **PASSWORD** is the only TODO — fill in the temp password for the lab box.
+   - **Auth is password-based for now** (temp setup). Once an SSH key is provisioned, switch `UploadWorker.uploadOverSftp()` from `authPassword(...)` back to the `loadKeys()` / `authPublickey()` flow and drop `PASSWORD`.
+2. **Create the upload directory on the server** (once, after first SSH login):
+   ```bash
+   ssh -p 16800 edward@misr.sauder.ubc.ca
+   mkdir -p hr_inbox
+   ```
+3. **Server-side ingestion** — write a small script that scans `hr_inbox/` for `hr_*_*.json` files and inserts into SQLite. Suggested schema:
+   ```sql
+   CREATE TABLE hr_samples (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       participant_id TEXT NOT NULL,
+       timestamp_ms INTEGER NOT NULL,
+       bpm INTEGER NOT NULL,
+       status INTEGER NOT NULL,
+       received_at INTEGER NOT NULL,
+       ingested_at INTEGER NOT NULL
+   );
+   CREATE INDEX idx_pid_ts ON hr_samples (participant_id, timestamp_ms);
+   ```
+   File format (each upload is a single JSON file):
+   ```json
+   {
+     "watch_serial": "RXYZ123",
+     "uploaded_at": 1717980000000,
+     "samples": [
+       { "participant_id": "P042", "timestamp_ms": 1717979700123, "bpm": 72, "status": 1, "received_at": 1717979750000 }
+     ]
+   }
+   ```
+4. **Participant ID** — auto-generated on first launch as `P-<8-char UUID slice>` and persisted in SharedPreferences. To override per watch (e.g. assign a study code):
+   ```bash
+   adb shell am broadcast -a com.example.testwatch.SET_PARTICIPANT_ID \
+       -n com.example.testwatch/.admin.SetParticipantIdReceiver \
+       --es participant_id "P042"
+   ```
 
-## 6. Kiosk mode — how it works
+---
 
-Five pieces:
-1. `HrDeviceAdminReceiver` registers as a Device Administrator.
-2. `dpm set-device-owner` promotes to Device Owner (one app per device, lifetime; requires factory-reset watch).
-3. `startLockTask()` in `MainActivity.onResume` enters non-dismissible lock-task. Receiver also sets `DISALLOW_FACTORY_RESET`, `DISALLOW_ADD_USER`, `DISALLOW_SAFE_BOOT`.
-4. `category.HOME` intent filter reroutes the watch's home press to our app.
-5. PIN flow: setup on first launch, unlock via "Log out" → keypad → `stopLockTask()`.
-
-### Per-watch provisioning steps (production)
+## 5. Build / install commands
 
 ```bash
-# Prereq: watch factory-reset, no Samsung/Google account added, ADB-WiFi enabled.
-adb connect <watch-ip>:<port>
-adb -s <watch-ip>:<port> install -r app/build/outputs/apk/debug/app-debug.apk
-adb -s <watch-ip>:<port> shell dpm set-device-owner \
-    com.example.testwatch/.admin.HrDeviceAdminReceiver
-adb -s <watch-ip>:<port> shell am start \
-    -n com.example.testwatch/.presentation.MainActivity
-# Pre-grant runtime perms to skip the first-run dialog race:
-adb -s <watch-ip>:<port> shell pm grant com.example.testwatch android.permission.BODY_SENSORS
-adb -s <watch-ip>:<port> shell pm grant com.example.testwatch android.permission.health.READ_HEART_RATE
+# Watch APK
+./gradlew :app:installDebug
+
+# Phone APK
+./gradlew :mobile:installDebug
+
+# Or build APKs without installing
+./gradlew :app:assembleDebug :mobile:assembleDebug
+# Watch APK   → app/build/outputs/apk/debug/app-debug.apk
+# Phone APK   → mobile/build/outputs/apk/debug/mobile-debug.apk
 ```
 
-If `dpm set-device-owner` fails with *"Not allowed to set the device owner because there are already several users on the device"* → factory reset again and skip every account prompt during setup.
-
-### Removing kiosk during development
-
+### Useful adb commands
 ```bash
-adb shell dpm remove-active-admin com.example.testwatch/.admin.HrDeviceAdminReceiver
+# Watch logcat for the tracking service + sync loop:
+adb -s <watch>     logcat -s HrTrackingService:V HeartRateListener:V ConnectionManager:V
+
+# Phone logcat for the listener + upload worker:
+adb -s <phone>     logcat -s HrBatchListener:V UploadWorker:V
+
+# Force a one-time upload from phone:
+adb -s <phone> shell am broadcast -a android.intent.action.BOOT_COMPLETED \
+    -n com.example.testwatch/.boot.BootReceiver
 ```
 
-Universal escape if that fails: factory reset the watch.
+---
+
+## 6. Tuning constants
+
+| Where | Constant | Default | Why |
+|---|---|---|---|
+| `HrTrackingService.kt` | `SYNC_INTERVAL_MS` | 5 min | Trade-off between data-loss window and Bluetooth wake-ups. |
+| `HrTrackingService.kt` | `BATCH_LIMIT` | 500 samples | ~30 KB JSON; well under MessageClient 100 KB cap. |
+| `HrTrackingService.kt` | `KEEP_RECENT_SYNCED` | 1000 rows | Keep the last N synced rows for debugging before pruning. |
+| `UploadWorker.kt` | `MAX_RETRIES` | 10 | Retries with exponential backoff (WorkManager default). |
+| `KioskConfig.kt` | `PIN` | `"2365"` | Hardcoded kiosk unlock. |
 
 ---
 
@@ -115,17 +210,16 @@ Universal escape if that fails: factory reset the watch.
 Per email from **Praveen Timmashetty (Samsung NA Health Partnerships)** on May 6, 2026:
 > "You don't need any additional permission at this point from Samsung. ... If you are ready to distribute the app, please follow the process to submit the partnership request."
 
-Translation: **no partnership approval needed for development**. The submission Angela filed earlier was for distribution. Production-distribute submission is still pending and will be needed before public release.
+**No partnership approval needed for development.** Distribution-partner submission still pending for public release.
 
-### `SDK_POLICY_ERROR` (the two-week blocker, resolved)
-Samsung Health on the watch refuses unregistered apps. Fixable **on the watch**, not in code:
-
+### `SDK_POLICY_ERROR` (resolved by watch-side toggle)
+Samsung Health on the watch refuses unregistered apps unless dev mode is on:
 1. On the watch, open **Samsung Health**.
 2. **Settings → General → About Samsung Health**.
-3. Rapid-tap the version number ~10 times until a "Developer mode enabled" toast appears.
+3. Rapid-tap the version number ~10 times until "Developer mode enabled" toast.
 4. Force-close + relaunch our app.
 
-This needs to be done on every watch in the fleet during provisioning until distribution-partner approval lands.
+Per-watch step during provisioning until distribution partner approval lands.
 
 ### `HEART_RATE_STATUS` values
 | Value | Meaning |
@@ -134,54 +228,91 @@ This needs to be done on every watch in the fleet during provisioning until dist
 | 0 | No data this tick |
 | -1 | Off-wrist |
 | -2 | Too much motion |
-| -3 | Poor signal (loose fit / sensor occluded) |
+| -3 | Poor signal |
 
-### First-launch permission race (latent bug, not yet hit in current session)
-`MainActivity.onCreate` calls `requestPermissions(...)` then immediately calls `createConnectionManager()`. The SDK can attempt to connect while the permission dialog is still up → `PERMISSION_ERROR` swallowed → app sits on "Connecting..." forever.
-
-**Demo workaround:** the `pm grant` lines in §6 above (pre-grant via ADB).
-**Proper fix (~1h):** defer `createConnectionManager()` into `onRequestPermissionsResult`, then reconnect after the user taps Allow.
+### First-launch permission race (latent bug, mitigated)
+`MainActivity.onCreate` previously raced the SDK connect against the runtime permission dialog. Continuous mode now starts the service only after `onRequestPermissionsResult` confirms grants (or if already granted at create time). Pre-grant via ADB during provisioning is also still in the playbook:
+```bash
+adb shell pm grant com.example.testwatch android.permission.BODY_SENSORS
+adb shell pm grant com.example.testwatch android.permission.health.READ_HEART_RATE
+```
 
 ---
 
-## 8. Pairing watch to laptop for development
+## 8. Kiosk mode
 
-- Use the **phone's mobile hotspot**, not public/guest WiFi. Public networks (UBCvisitor, eduroam, café WiFi) enable client isolation, which breaks ADB peer connectivity.
-- Watch sleeps its WiFi radio aggressively → keep watch on the charger with **Developer options → "Stay awake"** on, and set **Settings → Connections → Wi-Fi → Always** so the radio doesn't suspend mid-pair.
+Five pieces:
+1. `HrDeviceAdminReceiver` registers as Device Administrator.
+2. `dpm set-device-owner` promotes to Device Owner (one app per device, lifetime; requires factory-reset watch).
+3. `startLockTask()` in `MainActivity.onResume` enters non-dismissible lock-task. Receiver sets `DISALLOW_FACTORY_RESET`, `DISALLOW_ADD_USER`, `DISALLOW_SAFE_BOOT`.
+4. `category.HOME` intent filter reroutes home press to our app.
+5. PIN: hardcoded `2365`, unlock via "Log out" → keypad → `stopLockTask()`.
+
+### Per-watch provisioning steps (production)
+
+```bash
+# Prereq: watch factory-reset, no Samsung/Google account added, ADB-WiFi enabled.
+adb connect <watch-ip>:<port>
+adb -s <watch> install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s <watch> shell dpm set-device-owner \
+    com.example.testwatch/.admin.HrDeviceAdminReceiver
+adb -s <watch> shell pm grant com.example.testwatch android.permission.BODY_SENSORS
+adb -s <watch> shell pm grant com.example.testwatch android.permission.health.READ_HEART_RATE
+adb -s <watch> shell am broadcast -a com.example.testwatch.SET_PARTICIPANT_ID \
+    -n com.example.testwatch/.admin.SetParticipantIdReceiver \
+    --es participant_id "P042"
+adb -s <watch> shell am start -n com.example.testwatch/.presentation.MainActivity
+# Enable Samsung Health dev mode (manual step on watch — see §7).
+```
+
+### Removing kiosk during development
+```bash
+adb shell dpm remove-active-admin com.example.testwatch/.admin.HrDeviceAdminReceiver
+```
+Universal escape: factory reset.
+
+---
+
+## 9. Pairing watch to laptop for development
+
+- Use the **phone's mobile hotspot**, not public/guest WiFi. Public networks (UBCvisitor, eduroam) enable client isolation, which breaks ADB peer connectivity.
+- Watch sleeps WiFi aggressively → keep it on the charger with **Developer options → "Stay awake"** on, and **Settings → Connections → Wi-Fi → Always**.
 - Once `adb pair` + `adb connect` succeed, an active ADB session keeps the radio alive even with the screen off.
 
 ---
 
-## 9. Deliberate design decisions (so we don't relitigate)
+## 10. Deliberate design decisions
 
-- **4-digit PIN, not 6.** Faster entry on small touchscreen for 50+ cohort. Threat model = "curious participant", not hostile attacker.
-- **No lockout on wrong PIN.** Older participants miss-tapping shouldn't get locked out mid-study.
-- **No `BOOT_COMPLETED` auto-relaunch into app.** `HOME` intent filter is enough.
-- **Salted PBKDF2-SHA256 in plain SharedPreferences** (not `EncryptedSharedPreferences`). Adequate for kiosk PIN; avoids `androidx.security:security-crypto` dependency issues. *Note: about to be replaced by a hardcoded 2365 check anyway.*
-- **Same PIN across all watches** is the working assumption (vs per-watch in a binder).
-- **Standalone Wear app** (`com.google.android.wearable.standalone = true`) — survives unpairing from phone.
-
----
-
-## 10. Open questions (to confirm with supervisor)
-
-- Upload transport: Wear Data Layer relay through phone, or direct HTTPS from watch?
-- Backend choice (Firebase / lab REST API / Google Sheets / other)?
-- Same PIN across all 60–80 watches, or per-watch?
-- Begin Samsung distribution-partnership submission now in parallel with code work?
-- Which additional sensors are highest priority for Prototype 4 (PPG raw, ECG, SpO2, skin temp, accel, BIA, MF-BIA)?
+- **4-digit PIN, fixed at 2365.** Same on every watch. Threat model = curious participant, not adversary.
+- **Continuous tracking, no Start/Stop UI.** Foreground service runs from app launch onward; participants only see live BPM. Off-wrist samples (status -1) still get recorded — downstream filtering decides what to drop.
+- **5-min batches.** Worst-case data loss = 5 min; well under Wear MessageClient 100 KB cap; 12 BT wake-ups per hour instead of 3600.
+- **Watch Room + phone Room.** Both sides have durable buffers — survives BT drops, server outages, phone reboots.
+- **SFTP via sshj on phone, not direct from watch.** Watch radio sleeps; phone is the natural relay; matches the "use the phone's data plan" intent.
+- **Promiscuous host-key verifier.** Research-acceptable but not production-grade — pin the host key fingerprint before public study deployment.
+- **No `EncryptedSharedPreferences` for participant ID.** It's a non-secret tag; salted hash adds nothing.
 
 ---
 
-## 11. External references
+## 11. Open questions (still pending)
+
+- Pin SSH host key fingerprint (replace `PromiscuousVerifier`)?
+- Per-watch SSH keys vs shared key?
+- Should the phone reupload **all** samples on a manual user trigger (debug screen), or only via WorkManager?
+- Start Samsung distribution-partnership submission now in parallel?
+- Which additional sensors for Prototype 4 (PPG raw, ECG, SpO2, skin temp, accel, BIA, MF-BIA)?
+
+---
+
+## 12. External references
 
 - Samsung Health Sensor SDK guide: https://developer.samsung.com/health/sensor/guide/
-- Programming guide (continuous vs on-demand trackers): https://developer.samsung.com/health/sensor/guide/data-specifications.html
 - HR Tracker sample: https://developer.samsung.com/health/sensor/sample/hr-tracker.html
+- Wear OS Data Layer guide: https://developer.android.com/training/wearables/data/data-layer
+- sshj on GitHub: https://github.com/hierynomus/sshj
 - UBC Data + AI Lab: https://blogs.ubc.ca/analyticsailab/
 
-### Samsung contacts (from May 2026 email thread)
-- **Praveen Timmashetty** — SDK technical lead. Confirmed dev-time approval not required.
+### Samsung contacts (May 2026 email thread)
+- **Praveen Timmashetty** — SDK technical lead.
 - **Jennifer Li** — NA Health Partnerships intake.
 - **Zijing (Susie) Shao** — SRCA Vancouver, internal liaison.
 

@@ -35,7 +35,7 @@ public class ConnectionManager {
 
         @Override
         public void onConnectionFailed(HealthTrackerException e) {
-            if (e.hasResolution()) {
+            if (e.hasResolution() && callingActivity != null) {
                 e.resolve(callingActivity);
             }
             connectionObserver.onConnectionResult(false);

@@ -9,4 +9,5 @@ object KioskConfig {
     const val BOOT_NOTIFY_RETRY_DELAY_MS = 1500L
 
     const val PIN_LENGTH = 4
+    const val PIN = "2365"
 }

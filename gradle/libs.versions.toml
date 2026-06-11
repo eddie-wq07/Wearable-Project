@@ -2,6 +2,7 @@
 agp = "9.1.0"
 playServicesWearable = "18.0.0"
 kotlin = "2.2.10"
+ksp = "2.2.10-2.0.2"
 composeBom = "2024.09.00"
 composeMaterial3 = "1.5.6"
 composeFoundation = "1.5.6"
@@ -9,6 +10,13 @@ composeUiTooling = "1.5.6"
 wearToolingPreview = "1.0.0"
 activityCompose = "1.8.0"
 coreSplashscreen = "1.2.0"
+room = "2.8.4"
+workManager = "2.9.1"
+lifecycle = "2.8.4"
+coroutines = "1.9.0"
+sshj = "0.38.0"
+bouncycastle = "1.78.1"
+serialization = "1.7.3"
 
 [libraries]
 play-services-wearable = { group = "com.google.android.gms", name = "play-services-wearable", version.ref = "playServicesWearable" }
@@ -25,8 +33,20 @@ compose-ui-tooling = { group = "androidx.wear.compose", name = "compose-ui-tooli
 wear-tooling-preview = { group = "androidx.wear", name = "wear-tooling-preview", version.ref = "wearToolingPreview" }
 activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
+room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
+lifecycle-service = { group = "androidx.lifecycle", name = "lifecycle-service", version.ref = "lifecycle" }
+coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutines" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
+sshj = { group = "com.hierynomus", name = "sshj", version.ref = "sshj" }
+bcprov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
