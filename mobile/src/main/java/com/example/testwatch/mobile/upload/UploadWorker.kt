@@ -26,6 +26,7 @@ import java.security.Security
 private data class UploadSample(
     val participant_id: String,
     val timestamp_ms: Long,
+    val time: String,
     val bpm: Int,
     val status: Int,
     val received_at: Long,
@@ -35,6 +36,7 @@ private data class UploadSample(
 private data class UploadPayload(
     val watch_serial: String,
     val uploaded_at: Long,
+    val uploaded_at_readable: String,
     val is_test: Boolean,
     val samples: List<UploadSample>,
 )
@@ -96,17 +98,24 @@ class UploadWorker(
         UploadPayload(
             watch_serial = android.os.Build.SERIAL.orEmpty(),
             uploaded_at = System.currentTimeMillis(),
+            uploaded_at_readable = readable(System.currentTimeMillis()),
             is_test = true,  // flip to false (or pull from BuildConfig) for prod uploads
             samples = rows.map {
                 UploadSample(
                     participant_id = it.participantId,
                     timestamp_ms = it.timestampMs,
+                    time = readable(it.timestampMs),
                     bpm = it.bpm,
                     status = it.status,
                     received_at = it.receivedAt,
                 )
             },
         )
+
+    // Human-readable mirror of timestamp_ms in the phone's local timezone,
+    // e.g. "Jul 30 2026, 10:40:20 PM PDT". Display only — ingestion keys off timestamp_ms.
+    private val readableFormat = java.text.SimpleDateFormat("MMM d yyyy, h:mm:ss a zzz", java.util.Locale.US)
+    private fun readable(ms: Long): String = readableFormat.format(java.util.Date(ms))
 
     private fun uploadOverSftp(filename: String, body: ByteArray) {
         ensureFullBouncyCastle()
