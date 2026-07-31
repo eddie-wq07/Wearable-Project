@@ -113,9 +113,14 @@ java/com/example/testwatch/mobile/
 - [x] Kiosk + 2365 PIN unlock.
 
 ### Pending verification on device
-- [ ] Phone build installs cleanly.
-- [ ] Watch → phone Data Layer round-trip (look at `adb logcat` on the phone for `HrBatchListener`).
-- [ ] SFTP upload reaches the server (depends on filling in `ServerConfig`).
+- [x] Phone build installs cleanly.
+- [x] Watch → phone Data Layer round-trip (verified 2026-07-30: 500-sample batches every 30 s).
+- [x] SFTP upload reaches the server (verified 2026-07-30: `SFTP put OK` to `/data1/wearables`).
+- [ ] Overnight doze soak test: confirm the sensor's hardware buffer survives hours of doze, not just minutes.
+- [ ] `SYNC_INTERVAL_MS` still on 30 s testing override — restore to 5 min before deployment.
+- [ ] Server dir has junk test files (`hr_*.json` with June-11 timestamps + zero-BPM data) — archive with:
+      `mkdir -p /data1/wearables/old_test_data && mv /data1/wearables/hr_*.json /data1/wearables/old_test_data/`
+      (Both device DBs were wiped clean on 2026-07-30 after the timestamp fix; local backups in session scratchpad.)
 
 ---
 
@@ -229,6 +234,18 @@ Per-watch step during provisioning until distribution partner approval lands.
 | -1 | Off-wrist |
 | -2 | Too much motion |
 | -3 | Poor signal |
+| -10 | Warming up (seen briefly right after strapping on) |
+
+**Observed on Galaxy Watch 8 (2026-07-30):** off-wrist/on-charger reports `-3`, not `-1`. Downstream filtering should keep `status == 1` rather than exclude specific negative codes.
+
+### Doze / ambient behavior (verified 2026-07-30)
+The sensor stack stops *delivering* datapoints ~30–90 s after the screen sleeps whenever our app is not the top activity (SysUI ambient takes over on doze). **No data is lost** — the sensor keeps sampling at ~1 Hz into a hardware buffer and flushes the whole backlog in one burst when the app returns to the foreground (verified: 226-sample burst after a 227 s doze, 182 after 182 s). Because bursts arrive minutes late, samples are stamped with the SDK `DataPoint.getTimestamp()` (fix in `HeartRateListener`/`HrTrackingService`, 2026-07-30), **not** arrival time. Buffer depth beyond ~4 min doze is unverified — soak-test overnight before the study.
+
+### Watch clock drift (root cause of "all zeros + June timestamps", 2026-07-30)
+With Bluetooth off, the watch never syncs time and drifted 7 weeks stale, mislabeling every sample. `auto_time=1` is now set; provisioning must verify BT is on and the clock is correct. Server ingestion should sanity-check `timestamp_ms` against the upload time and flag watches whose clock has drifted.
+
+### Dev-session buzzing
+The watch buzzes on the system "Wireless debugging" notification every time the flaky ADB-WiFi link reconnects. Harmless, dev-only; toggle Wireless debugging off after each session.
 
 ### First-launch permission race (latent bug, mitigated)
 `MainActivity.onCreate` previously raced the SDK connect against the runtime permission dialog. Continuous mode now starts the service only after `onRequestPermissionsResult` confirms grants (or if already granted at create time). Pre-grant via ADB during provisioning is also still in the playbook:

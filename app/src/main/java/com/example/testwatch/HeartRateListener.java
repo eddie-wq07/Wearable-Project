@@ -74,6 +74,6 @@ public class HeartRateListener {
     void updateHeartRate(DataPoint data) {
         final int status = data.getValue(ValueKey.HeartRateSet.HEART_RATE_STATUS);
         int heartRateValue = data.getValue(ValueKey.HeartRateSet.HEART_RATE);
-        trackerDataSubject.notifyHeartRateTrackerObservers(status, heartRateValue);
+        trackerDataSubject.notifyHeartRateTrackerObservers(data.getTimestamp(), status, heartRateValue);
     }
 }

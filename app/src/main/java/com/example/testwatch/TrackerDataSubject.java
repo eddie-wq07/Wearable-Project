@@ -16,8 +16,8 @@ public class TrackerDataSubject {
         trackerObservers.remove(observer);
     }
 
-    public void notifyHeartRateTrackerObservers(int status, int heartRateValue) {
-        trackerObservers.forEach(observer -> observer.onHeartRateChanged(status, heartRateValue));
+    public void notifyHeartRateTrackerObservers(long timestampMs, int status, int heartRateValue) {
+        trackerObservers.forEach(observer -> observer.onHeartRateChanged(timestampMs, status, heartRateValue));
     }
 
     public void notifyError(int errorResourceId) {

@@ -112,11 +112,12 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
     }
 
     // TrackerObserver
-    override fun onHeartRateChanged(status: Int, heartRateValue: Int) {
+    override fun onHeartRateChanged(timestampMs: Long, status: Int, heartRateValue: Int) {
         TrackingState.latestBpm.value = heartRateValue
         TrackingState.latestStatus.value = status
         val sample = HrSample(
-            timestampMs = System.currentTimeMillis(),
+            // SDK timestamp, not arrival time: doze-buffered bursts arrive minutes late
+            timestampMs = timestampMs,
             bpm = heartRateValue,
             status = status,
         )
