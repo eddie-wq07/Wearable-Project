@@ -1,0 +1,4 @@
+<resources>
+    <string name="companion_name">Sensor Companion</string>
+    <string name="status_running">Companion installed. Running in background.</string>
+</resources>
