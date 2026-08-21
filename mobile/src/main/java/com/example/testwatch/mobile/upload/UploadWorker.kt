@@ -41,6 +41,25 @@ private data class UploadPayload(
     val samples: List<UploadSample>,
 )
 
+@Serializable
+private data class UploadSensorRow(
+    val participant_id: String,
+    val sensor: String,
+    val timestamp_ms: Long,
+    val time: String,
+    val received_at: Long,
+    val points: kotlinx.serialization.json.JsonElement,
+)
+
+@Serializable
+private data class SensorUploadPayload(
+    val watch_serial: String,
+    val uploaded_at: Long,
+    val uploaded_at_readable: String,
+    val is_test: Boolean,
+    val batches: List<UploadSensorRow>,
+)
+
 class UploadWorker(
     context: Context,
     params: WorkerParameters,
@@ -56,26 +75,35 @@ class UploadWorker(
                 recordResult(ok = false, count = 0, message = "ServerConfig not filled in")
                 return@withContext Result.failure()
             }
-            val dao = PhoneHrDatabase.get(applicationContext).phoneHrDao()
+            val db = PhoneHrDatabase.get(applicationContext)
+            val dao = db.phoneHrDao()
+            val sensorDao = db.phoneSensorDao()
             val rows = dao.unuploaded()
-            if (rows.isEmpty()) {
+            val sensorRows = sensorDao.unuploaded()
+            if (rows.isEmpty() && sensorRows.isEmpty()) {
                 recordResult(ok = true, count = 0, message = "nothing to upload")
                 return@withContext Result.success()
             }
-            Log.i(TAG, "uploading ${rows.size} samples")
-
-            val payload = json.encodeToString(buildPayload(rows)).toByteArray(Charsets.UTF_8)
-            val filename = "hr_${rows.first().participantId}_${System.currentTimeMillis()}.json"
+            Log.i(TAG, "uploading ${rows.size} HR samples, ${sensorRows.size} sensor rows")
 
             try {
-                uploadOverSftp(filename, payload)
-                dao.markUploaded(rows.map { it.id })
-                dao.pruneUploaded(rows.last().id - KEEP_RECENT)
-                recordResult(ok = true, count = rows.size, message = "uploaded $filename")
+                if (rows.isNotEmpty()) {
+                    val payload = json.encodeToString(buildPayload(rows)).toByteArray(Charsets.UTF_8)
+                    uploadOverSftp("hr_${rows.first().participantId}_${System.currentTimeMillis()}.json", payload)
+                    dao.markUploaded(rows.map { it.id })
+                    dao.pruneUploaded(rows.last().id - KEEP_RECENT)
+                }
+                if (sensorRows.isNotEmpty()) {
+                    val payload = json.encodeToString(buildSensorPayload(sensorRows)).toByteArray(Charsets.UTF_8)
+                    uploadOverSftp("sensors_${sensorRows.first().participantId}_${System.currentTimeMillis()}.json", payload)
+                    sensorDao.markUploaded(sensorRows.map { it.id })
+                    sensorDao.pruneUploaded(sensorRows.last().id - KEEP_RECENT)
+                }
+                recordResult(ok = true, count = rows.size + sensorRows.size, message = "uploaded")
                 Result.success()
             } catch (t: Throwable) {
                 Log.w(TAG, "upload failed: ${t.message}")
-                recordResult(ok = false, count = rows.size, message = t.message ?: "unknown error")
+                recordResult(ok = false, count = rows.size + sensorRows.size, message = t.message ?: "unknown error")
                 if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()
             }
         } finally {
@@ -108,6 +136,24 @@ class UploadWorker(
                     bpm = it.bpm,
                     status = it.status,
                     received_at = it.receivedAt,
+                )
+            },
+        )
+
+    private fun buildSensorPayload(rows: List<com.example.testwatch.mobile.data.PhoneSensorBatch>): SensorUploadPayload =
+        SensorUploadPayload(
+            watch_serial = android.os.Build.SERIAL.orEmpty(),
+            uploaded_at = System.currentTimeMillis(),
+            uploaded_at_readable = readable(System.currentTimeMillis()),
+            is_test = true,  // flip together with UploadPayload.is_test for prod
+            batches = rows.map {
+                UploadSensorRow(
+                    participant_id = it.participantId,
+                    sensor = it.sensor,
+                    timestamp_ms = it.timestampMs,
+                    time = readable(it.timestampMs),
+                    received_at = it.receivedAt,
+                    points = json.parseToJsonElement(it.points),
                 )
             },
         )

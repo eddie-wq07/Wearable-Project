@@ -30,6 +30,7 @@
             <intent-filter>
                 <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
                 <data android:scheme="wear" android:host="*" android:pathPrefix="/hr_batch" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/sensor_batch" />
             </intent-filter>
         </service>
 

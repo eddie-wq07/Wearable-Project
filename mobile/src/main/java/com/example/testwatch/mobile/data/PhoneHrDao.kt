@@ -23,4 +23,9 @@ interface PhoneHrDao {
 
     @Query("SELECT COUNT(*) FROM hr_samples WHERE uploaded = 0")
     suspend fun unuploadedCount(): Int
+
+    // By timestamp, not insert order: backlog drains oldest-first, so the newest
+    // insert can be an old sample.
+    @Query("SELECT * FROM hr_samples ORDER BY timestampMs DESC LIMIT 1")
+    suspend fun latest(): PhoneHrSample?
 }

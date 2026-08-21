@@ -3,6 +3,7 @@ package com.example.testwatch.mobile
 import android.app.Activity
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.format.DateUtils
 import android.view.Gravity
@@ -27,14 +28,43 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 
+/**
+ * Whoop-style live dashboard: hero HR figure + one stat tile per sensor.
+ * Values wear text tokens; the colored dot carries sensor identity
+ * (dark-mode categorical palette from the dataviz reference).
+ */
 class StatusActivity : Activity() {
 
+    private object Ui {
+        const val BG = 0xFF101010.toInt()
+        const val CARD = 0xFF1A1A19.toInt()
+        const val TEXT = 0xFFFFFFFF.toInt()
+        const val TEXT_2 = 0xFFC3C2B7.toInt()
+        const val TEXT_3 = 0xFF7A796F.toInt()
+    }
+
+    /** Fixed slot order — color follows the sensor, never its position on screen. */
+    private val sensorDot = mapOf(
+        "hr" to 0xFF3987E5.toInt(),
+        "ppg" to 0xFFD95926.toInt(),
+        "accel" to 0xFF199E70.toInt(),
+        "skin_temp" to 0xFFC98500.toInt(),
+        "spo2" to 0xFFD55181.toInt(),
+        "ecg" to 0xFF008300.toInt(),
+        "bia" to 0xFF9085E9.toInt(),
+        "mf_bia" to 0xFFE66767.toInt(),
+    )
+
+    private class Tile(val value: TextView, val caption: TextView)
+
     private var scope: CoroutineScope? = null
-    private lateinit var tvDb: TextView
-    private lateinit var tvBatch: TextView
-    private lateinit var tvUpload: TextView
-    private lateinit var tvTotals: TextView
+    private lateinit var tvHero: TextView
+    private lateinit var tvHeroCaption: TextView
+    private val tiles = mutableMapOf<String, Tile>()
+    private lateinit var tvPipeline: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,135 +85,203 @@ class StatusActivity : Activity() {
     }
 
     private fun startObservers(scope: CoroutineScope) {
-        // Poll Room every 1.5s for DB counts (works even after first arrival)
         scope.launch {
-            val dao = PhoneHrDatabase.get(applicationContext).phoneHrDao()
+            val db = PhoneHrDatabase.get(applicationContext)
+            val hrDao = db.phoneHrDao()
+            val sensorDao = db.phoneSensorDao()
             while (true) {
-                val total = runCatching { dao.allCount() }.getOrDefault(0)
-                val pending = runCatching { dao.unuploadedCount() }.getOrDefault(0)
-                val uploaded = total - pending
-                tvDb.text = "$total total · $pending pending · $uploaded uploaded"
+                runCatching {
+                    val hr = hrDao.latest()
+                    tvHero.text = if (hr != null && hr.bpm > 0) "${hr.bpm}" else "--"
+                    tvHeroCaption.text = if (hr == null) "bpm · waiting for watch"
+                    else "bpm · ${relativeNow(hr.timestampMs)}"
+
+                    val counts = sensorDao.counts().associateBy { it.sensor }
+                    for ((sensor, tile) in tiles) {
+                        val c = counts[sensor]
+                        if (c == null) {
+                            tile.value.text = "--"
+                            tile.caption.text = "no data"
+                            continue
+                        }
+                        val last = sensorDao.latest(sensor)
+                        val point = last?.let { lastPoint(it.points) }
+                        tile.value.text = when (sensor) {
+                            "skin_temp" -> point?.optDouble("object_c")?.takeIf { !it.isNaN() }?.let { "%.1f °C".format(it) } ?: "--"
+                            "spo2" -> point?.optInt("spo2")?.takeIf { it > 0 }?.let { "$it%" } ?: "--"
+                            "bia", "mf_bia" -> point?.optDouble("progress")?.takeIf { !it.isNaN() }?.let { "%.0f%%".format(it) } ?: "--"
+                            else -> "${c.n} rows"
+                        }
+                        tile.caption.text = relativeNow(c.lastTs).toString()
+                    }
+                }
                 delay(1500)
             }
         }
 
-        // Last batch from watch
         scope.launch {
             combine(
                 PipelineStatus.lastBatchReceivedMs,
-                PipelineStatus.lastBatchSize,
-                PipelineStatus.lastBatchParticipant,
-            ) { ts, size, pid -> Triple(ts, size, pid) }.collect { (ts, size, pid) ->
-                tvBatch.text = if (ts == 0L) "—"
-                else "$size samples · $pid\n${relativeNow(ts)}"
-            }
-        }
-
-        // Upload state (compose-flow-style: uploading + last attempt + result)
-        scope.launch {
-            combine(
                 PipelineStatus.uploading,
                 PipelineStatus.lastUploadOk,
-                PipelineStatus.lastUploadMessage,
                 PipelineStatus.lastUploadAttemptMs,
-                PipelineStatus.lastUploadSampleCount,
-            ) { uploading, ok, msg, ts, count -> UploadView(uploading, ok, msg, ts, count) }
-                .collect { v ->
-                    tvUpload.text = when {
-                        v.uploading -> "Uploading…"
-                        v.ts == 0L -> "—"
-                        v.ok == true -> "OK · ${v.count} samples\n${relativeNow(v.ts)}"
-                        else -> "FAILED · ${v.count} samples\n${relativeNow(v.ts)}\n${v.msg}"
-                    }
-                }
-        }
-
-        // Session totals
-        scope.launch {
-            combine(
-                PipelineStatus.totalBatchesReceived,
-                PipelineStatus.totalUploadsSucceeded,
                 PipelineStatus.totalSamplesUploaded,
-            ) { b, u, s -> "$b batches received · $u uploads ok · $s samples sent" }
-                .collect { tvTotals.text = it }
+            ) { batchTs, uploading, ok, upTs, total ->
+                val batch = if (batchTs == 0L) "no batches yet" else "batch ${relativeNow(batchTs)}"
+                val upload = when {
+                    uploading -> "uploading…"
+                    upTs == 0L -> "no uploads yet"
+                    ok == true -> "upload ok ${relativeNow(upTs)}"
+                    else -> "UPLOAD FAILED ${relativeNow(upTs)}"
+                }
+                "$batch\n$upload · $total samples sent"
+            }.collect { tvPipeline.text = it }
         }
     }
+
+    private fun lastPoint(points: String): JSONObject? =
+        runCatching {
+            val arr = JSONArray(points)
+            if (arr.length() == 0) null else arr.getJSONObject(arr.length() - 1)
+        }.getOrNull()
 
     private fun forceUpload() {
         val req = OneTimeWorkRequestBuilder<UploadWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .build()
         WorkManager.getInstance(applicationContext)
-            .enqueueUniqueWork(UploadWorker.NAME, ExistingWorkPolicy.REPLACE, req)
+            .enqueueUniqueWork(UploadWorker.NAME, ExistingWorkPolicy.KEEP, req)
     }
 
     private fun buildLayout(): View {
+        val d = resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
+
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(48, 64, 48, 64)
+            setPadding(dp(20), dp(48), dp(20), dp(32))
         }
-        column.addView(makeTitle(getString(R.string.companion_name)))
-        column.addView(makeSubtitle("Pipeline status — live"))
-        column.addView(makeSectionHeader("Phone database"))
-        tvDb = makeValue().also(column::addView)
-        column.addView(makeSectionHeader("Last batch from watch"))
-        tvBatch = makeValue().also(column::addView)
-        column.addView(makeSectionHeader("Last upload"))
-        tvUpload = makeValue().also(column::addView)
-        column.addView(makeSectionHeader("Session totals"))
-        tvTotals = makeValue().also(column::addView)
-        column.addView(Button(this).apply {
-            text = "Force upload now"
-            setOnClickListener { forceUpload() }
-            val lp = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            )
-            lp.topMargin = 32
-            layoutParams = lp
+
+        column.addView(TextView(this).apply {
+            text = "WEARABLE LAB"
+            textSize = 12f
+            letterSpacing = 0.2f
+            setTextColor(Ui.TEXT_3)
+            gravity = Gravity.CENTER
         })
+
+        // Hero: heart rate
+        column.addView(TextView(this).apply {
+            text = "--"
+            textSize = 72f
+            setTypeface(Typeface.DEFAULT_BOLD)
+            setTextColor(Ui.TEXT)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(16), 0, 0)
+        }.also { tvHero = it })
+        column.addView(TextView(this).apply {
+            text = "bpm"
+            textSize = 13f
+            setTextColor(Ui.TEXT_2)
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(20))
+        }.also { tvHeroCaption = it })
+
+        // Sensor tiles, two per row
+        val tileSpecs = listOf(
+            "ppg" to "PPG",
+            "accel" to "ACCEL",
+            "skin_temp" to "SKIN TEMP",
+            "spo2" to "SPO2",
+            "ecg" to "ECG",
+            "bia" to "BIA",
+            "mf_bia" to "MF-BIA",
+        )
+        tileSpecs.chunked(2).forEach { pair ->
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            pair.forEach { (sensor, label) ->
+                row.addView(makeTile(sensor, label, dp(12)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            if (pair.size == 1) row.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f))
+            column.addView(row)
+        }
+
+        // Pipeline footer
+        column.addView(TextView(this).apply {
+            text = "—"
+            textSize = 12f
+            setTextColor(Ui.TEXT_3)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(20), 0, dp(8))
+        }.also { tvPipeline = it })
+
+        column.addView(Button(this).apply {
+            text = "Force upload"
+            setTextColor(Ui.TEXT_2)
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12).toFloat()
+                setColor(Ui.CARD)
+            }
+            setOnClickListener { forceUpload() }
+        })
+
         return ScrollView(this).apply {
+            setBackgroundColor(Ui.BG)
             addView(column)
         }
     }
 
-    private fun makeTitle(text: String) = TextView(this).apply {
-        this.text = text
-        textSize = 24f
-        setTypeface(typeface, Typeface.BOLD)
-        gravity = Gravity.CENTER
-        setPadding(0, 0, 0, 8)
-    }
+    private fun makeTile(sensor: String, label: String, margin: Int): View {
+        val d = resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
 
-    private fun makeSubtitle(text: String) = TextView(this).apply {
-        this.text = text
-        textSize = 13f
-        gravity = Gravity.CENTER
-        setTextColor(Color.parseColor("#888888"))
-        setPadding(0, 0, 0, 16)
-    }
+        val tile = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14).toFloat()
+                setColor(Ui.CARD)
+            }
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(sensorDot[sensor] ?: Ui.TEXT_2)
+            }
+        }, LinearLayout.LayoutParams(dp(7), dp(7)).apply { rightMargin = dp(6) })
+        header.addView(TextView(this).apply {
+            text = label
+            textSize = 11f
+            letterSpacing = 0.1f
+            setTextColor(Ui.TEXT_2)
+        })
+        tile.addView(header)
 
-    private fun makeSectionHeader(text: String) = TextView(this).apply {
-        this.text = text
-        textSize = 13f
-        setTypeface(typeface, Typeface.BOLD)
-        setTextColor(Color.parseColor("#888888"))
-        setPadding(0, 24, 0, 4)
-    }
+        val value = TextView(this).apply {
+            text = "--"
+            textSize = 20f
+            setTypeface(Typeface.DEFAULT_BOLD)
+            setTextColor(Ui.TEXT)
+            setPadding(0, dp(4), 0, 0)
+        }
+        tile.addView(value)
+        val caption = TextView(this).apply {
+            text = ""
+            textSize = 11f
+            setTextColor(Ui.TEXT_3)
+        }
+        tile.addView(caption)
+        tiles[sensor] = Tile(value, caption)
 
-    private fun makeValue() = TextView(this).apply {
-        textSize = 16f
-        setPadding(0, 0, 0, 4)
+        val wrapper = LinearLayout(this).apply { setPadding(dp(3), dp(3), dp(3), dp(3)) }
+        wrapper.addView(tile, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        return wrapper
     }
 
     private fun relativeNow(ts: Long): CharSequence =
         DateUtils.getRelativeTimeSpanString(ts, System.currentTimeMillis(), DateUtils.SECOND_IN_MILLIS)
-
-    private data class UploadView(
-        val uploading: Boolean,
-        val ok: Boolean?,
-        val msg: String,
-        val ts: Long,
-        val count: Int,
-    )
 }

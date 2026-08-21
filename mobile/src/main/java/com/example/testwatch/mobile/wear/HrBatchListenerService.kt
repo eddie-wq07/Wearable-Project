@@ -8,6 +8,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.testwatch.mobile.data.PhoneHrDatabase
 import com.example.testwatch.mobile.data.PhoneHrSample
+import com.example.testwatch.mobile.data.PhoneSensorBatch
 import com.example.testwatch.mobile.status.PipelineStatus
 import com.example.testwatch.mobile.upload.UploadWorker
 import com.google.android.gms.wearable.MessageEvent
@@ -25,14 +26,52 @@ private data class WireSample(val ts: Long, val bpm: Int, val status: Int)
 @Serializable
 private data class WireBatch(val participantId: String, val samples: List<WireSample>)
 
+@Serializable
+private data class WireSensorRow(val sensor: String, val ts: Long, val points: kotlinx.serialization.json.JsonElement)
+
+@Serializable
+private data class WireSensorBatch(val participantId: String, val rows: List<WireSensorRow>)
+
 class HrBatchListenerService : WearableListenerService() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val json = Json { ignoreUnknownKeys = true }
 
     override fun onMessageReceived(event: MessageEvent) {
-        if (event.path != PATH) return
-        val payload = String(event.data, Charsets.UTF_8)
+        when (event.path) {
+            PATH -> handleHrBatch(String(event.data, Charsets.UTF_8))
+            SENSOR_PATH -> handleSensorBatch(String(event.data, Charsets.UTF_8))
+        }
+    }
+
+    private fun handleSensorBatch(payload: String) {
+        scope.launch {
+            try {
+                val batch = json.decodeFromString(WireSensorBatch.serializer(), payload)
+                val now = System.currentTimeMillis()
+                val rows = batch.rows.map { r ->
+                    PhoneSensorBatch(
+                        participantId = batch.participantId,
+                        sensor = r.sensor,
+                        timestampMs = r.ts,
+                        points = r.points.toString(),
+                        receivedAt = now,
+                    )
+                }
+                PhoneHrDatabase.get(applicationContext).phoneSensorDao().insertAll(rows)
+                Log.i(TAG, "stored ${rows.size} sensor rows from ${batch.participantId}")
+                PipelineStatus.lastBatchReceivedMs.value = now
+                PipelineStatus.lastBatchSize.value = rows.size
+                PipelineStatus.lastBatchParticipant.value = batch.participantId
+                PipelineStatus.totalBatchesReceived.value = PipelineStatus.totalBatchesReceived.value + 1
+                enqueueUpload()
+            } catch (t: Throwable) {
+                Log.w(TAG, "sensor decode failed: ${t.message}")
+            }
+        }
+    }
+
+    private fun handleHrBatch(payload: String) {
         scope.launch {
             try {
                 val batch = json.decodeFromString(WireBatch.serializer(), payload)
@@ -67,12 +106,15 @@ class HrBatchListenerService : WearableListenerService() {
                     .build(),
             )
             .build()
+        // KEEP, not REPLACE: batches arrive every second or two now, and REPLACE
+        // cancels the in-flight SFTP transfer each time — uploads never finish.
         WorkManager.getInstance(applicationContext)
-            .enqueueUniqueWork(UploadWorker.NAME, ExistingWorkPolicy.REPLACE, req)
+            .enqueueUniqueWork(UploadWorker.NAME, ExistingWorkPolicy.KEEP, req)
     }
 
     companion object {
         private const val PATH = "/hr_batch"
+        private const val SENSOR_PATH = "/sensor_batch"
         private const val TAG = "HrBatchListener"
     }
 }
