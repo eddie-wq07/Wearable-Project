@@ -9,7 +9,9 @@ interface HrDao {
     @Insert
     suspend fun insert(sample: HrSample): Long
 
-    @Query("SELECT * FROM hr_samples WHERE synced = 0 ORDER BY id ASC LIMIT :limit")
+    // Newest first: live data reaches the phone within one cycle even while a
+    // large backlog drains behind it.
+    @Query("SELECT * FROM hr_samples WHERE synced = 0 ORDER BY id DESC LIMIT :limit")
     suspend fun unsynced(limit: Int = 1000): List<HrSample>
 
     @Query("UPDATE hr_samples SET synced = 1 WHERE id IN (:ids)")

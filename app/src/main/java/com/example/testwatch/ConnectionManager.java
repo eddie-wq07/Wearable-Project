@@ -70,6 +70,10 @@ public class ConnectionManager {
         return availableTrackers.contains(HealthTrackerType.HEART_RATE_CONTINUOUS);
     }
 
+    public HealthTrackingService getTrackingService() {
+        return healthTrackingService;
+    }
+
     public void initHeartRate(HeartRateListener heartRateListener) {
         heartRateListener.setHeartRateTracker(healthTrackingService);
         heartRateListener.setHeartRateHandler(new Handler(Looper.getMainLooper()));

@@ -24,6 +24,7 @@ import com.example.testwatch.TrackerObserver
 import com.example.testwatch.data.HrDatabase
 import com.example.testwatch.data.HrSample
 import com.example.testwatch.data.ParticipantStore
+import com.example.testwatch.data.SensorBatch
 import com.example.testwatch.sync.BatchSerializer
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.CoroutineScope
@@ -44,11 +45,13 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
     private var trackerDataSubject: TrackerDataSubject? = null
     private var connectionManager: ConnectionManager? = null
     private var heartRateListener: HeartRateListener? = null
+    private var sensorEngine: SensorEngine? = null
     private var sensorManager: SensorManager? = null
     private var offBodySensor: Sensor? = null
 
     private val db by lazy { HrDatabase.get(this) }
     private val dao by lazy { db.hrDao() }
+    private val sensorDao by lazy { db.sensorBatchDao() }
     private val participantStore by lazy { ParticipantStore(this) }
 
     override fun onCreate() {
@@ -69,9 +72,25 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundCompat()
+        try {
+            startForegroundCompat()
+        } catch (t: Throwable) {
+            // Sticky restart from the background: Android 14+ forbids startForeground
+            // here. Stop cleanly; MainActivity restarts us from the foreground.
+            Log.w(TAG, "startForeground not allowed; stopping: ${t.message}")
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (syncJob == null || syncJob?.isActive != true) {
             syncJob = scope.launch { syncLoop() }
+        }
+        if (intent?.action == ACTION_RUN_ROUND) {
+            // Hold the CPU for the ~3-minute round; times out on its own.
+            (getSystemService(POWER_SERVICE) as android.os.PowerManager)
+                .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "testwatch:round")
+                .acquire(4 * 60_000L)
+            sensorEngine?.runRoundNow()
+            MeasureAlarmReceiver.scheduleNext(this, SensorConfig.ON_DEMAND_INTERVAL_MIN)
         }
         return START_STICKY
     }
@@ -80,6 +99,8 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
 
     override fun onDestroy() {
         super.onDestroy()
+        sensorEngine?.stop()
+        sensorEngine = null
         heartRateListener?.stopTracker()
         connectionManager?.disconnect()
         trackerDataSubject?.removeObserver(this)
@@ -93,7 +114,77 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
     override fun onConnectionResult(isConnected: Boolean) {
         Log.i(TAG, "onConnectionResult=$isConnected")
         TrackingState.connected.value = isConnected
-        if (!isConnected) TrackingState.ready.value = false
+        if (!isConnected) {
+            TrackingState.ready.value = false
+            sensorEngine?.stop()
+            sensorEngine = null
+            return
+        }
+        startSensorEngine()
+    }
+
+    private fun startSensorEngine() {
+        if (sensorEngine != null) return
+        val trackingService = connectionManager?.trackingService ?: return
+        try {
+            sensorEngine = SensorEngine(
+                service = trackingService,
+                scope = scope,
+                store = { spec, firstTs, pointsJson ->
+                    scope.launch {
+                        try {
+                            sensorDao.insert(SensorBatch(sensor = spec.id, timestampMs = firstTs, points = pointsJson))
+                        } catch (t: Throwable) {
+                            Log.w(TAG, "sensor insert failed", t)
+                        }
+                    }
+                },
+                prompt = ::showMeasurementPrompt,
+            ).also { it.start() }
+            MeasureAlarmReceiver.scheduleNext(this, SensorConfig.FIRST_ROUND_DELAY_MIN)
+        } catch (t: Throwable) {
+            Log.e(TAG, "sensor engine start failed", t)
+        }
+    }
+
+    private fun showMeasurementPrompt(text: String?) {
+        TrackingState.currentMeasurement.value = text
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        if (text == null) {
+            nm.cancel(MEASURE_NOTIF_ID)
+            return
+        }
+        // Kiosk lock-task suppresses notification haptics; buzz explicitly.
+        getSystemService(android.os.Vibrator::class.java)?.vibrate(
+            android.os.VibrationEffect.createWaveform(longArrayOf(0, 300, 150, 300), -1),
+        )
+        if (nm.getNotificationChannel(MEASURE_CHANNEL_ID) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(MEASURE_CHANNEL_ID, "Measurements", NotificationManager.IMPORTANCE_HIGH),
+            )
+        }
+        val openApp = Intent(this, com.example.testwatch.presentation.MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val pi = android.app.PendingIntent.getActivity(
+            this, 0, openApp,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notif = NotificationCompat.Builder(this, MEASURE_CHANNEL_ID)
+            .setSmallIcon(R.drawable.splash_icon)
+            .setContentTitle(text)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setContentIntent(pi)
+            // Full-screen intent: turns the screen on and opens the app so the
+            // participant sees the instructions without touching anything.
+            .setFullScreenIntent(pi, true)
+            .build()
+        nm.notify(MEASURE_NOTIF_ID, notif)
+        try {
+            startActivity(openApp)
+        } catch (t: Throwable) {
+            Log.i(TAG, "direct activity launch blocked (${t.message}); full-screen intent will handle it")
+        }
     }
 
     override fun onHeartRateAvailability(isAvailable: Boolean) {
@@ -177,37 +268,76 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
     }
 
     private suspend fun syncOnce() {
-        val pending = dao.unsynced(BATCH_LIMIT)
-        if (pending.isEmpty()) return
+        val hrPending = dao.unsynced(BATCH_LIMIT)
+        val sensorPending = sensorDao.unsynced(SENSOR_BATCH_LIMIT)
+        if (hrPending.isEmpty() && sensorPending.isEmpty()) return
         val participantId = participantStore.participantId
-        val payload = BatchSerializer.encode(participantId, pending)
         val nodes = Wearable.getNodeClient(applicationContext).connectedNodes.await()
         if (nodes.isEmpty()) {
             Log.i(TAG, "no connected nodes; skipping")
             return
         }
         val messageClient = Wearable.getMessageClient(applicationContext)
+
+        if (hrPending.isNotEmpty()) {
+            val payload = BatchSerializer.encode(participantId, hrPending)
+            if (sendToAnyNode(messageClient, nodes, MSG_PATH, payload, "${hrPending.size} HR samples")) {
+                dao.markSynced(hrPending.map { it.id })
+                dao.pruneSynced(hrPending.last().id - KEEP_RECENT_SYNCED)
+            }
+        }
+
+        // MessageClient caps a message at ~100 KB; ship sensor rows in size-capped chunks.
+        var i = 0
+        while (i < sensorPending.size) {
+            val chunk = mutableListOf<SensorBatch>()
+            var bytes = 0
+            while (i < sensorPending.size &&
+                (chunk.isEmpty() || bytes + sensorPending[i].points.length < MAX_SENSOR_MSG_BYTES)
+            ) {
+                bytes += sensorPending[i].points.length
+                chunk += sensorPending[i]
+                i++
+            }
+            val payload = BatchSerializer.encodeSensorRows(participantId, chunk)
+            if (!sendToAnyNode(messageClient, nodes, SENSOR_MSG_PATH, payload, "${chunk.size} sensor rows")) return
+            sensorDao.markSynced(chunk.map { it.id })
+        }
+        if (sensorPending.isNotEmpty()) {
+            sensorDao.pruneSynced(sensorPending.last().id - KEEP_RECENT_SYNCED)
+        }
+    }
+
+    private suspend fun sendToAnyNode(
+        messageClient: com.google.android.gms.wearable.MessageClient,
+        nodes: List<com.google.android.gms.wearable.Node>,
+        path: String,
+        payload: ByteArray,
+        what: String,
+    ): Boolean {
         var anyOk = false
         for (node in nodes) {
             try {
-                messageClient.sendMessage(node.id, MSG_PATH, payload).await()
+                messageClient.sendMessage(node.id, path, payload).await()
                 anyOk = true
-                Log.i(TAG, "sent ${pending.size} samples to ${node.displayName}")
+                Log.i(TAG, "sent $what to ${node.displayName}")
             } catch (t: Throwable) {
                 Log.w(TAG, "sendMessage to ${node.id} failed: ${t.message}")
             }
         }
-        if (anyOk) {
-            val ids = pending.map { it.id }
-            dao.markSynced(ids)
-            dao.pruneSynced(pending.last().id - KEEP_RECENT_SYNCED)
-        }
+        return anyOk
     }
 
     companion object {
         const val MSG_PATH = "/hr_batch"
+        const val SENSOR_MSG_PATH = "/sensor_batch"
+        const val ACTION_RUN_ROUND = "com.example.testwatch.RUN_ROUND"
         private const val CHANNEL_ID = "hr_tracking"
+        private const val MEASURE_CHANNEL_ID = "measurements"
         private const val NOTIF_ID = 1001
+        private const val MEASURE_NOTIF_ID = 1002
+        private const val SENSOR_BATCH_LIMIT = 300
+        private const val MAX_SENSOR_MSG_BYTES = 60_000
         private const val SYNC_INTERVAL_MS = 30L * 1000L  // TESTING: lowered from 5 min
         private const val BATCH_LIMIT = 500
         private const val KEEP_RECENT_SYNCED = 1000L
