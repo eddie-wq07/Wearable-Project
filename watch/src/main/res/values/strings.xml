@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Test Watch</string>
+    <string name="no_permission_message">User permission is required. Grant permission in App settings.</string>
+    <string name="sdk_policy_error">SDK Policy Error occurred</string>
+</resources>

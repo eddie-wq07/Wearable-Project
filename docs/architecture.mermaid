@@ -1,0 +1,108 @@
+---
+config:
+  theme: base
+  themeVariables:
+    fontSize: "15px"
+    fontFamily: "Helvetica, Arial, sans-serif"
+    primaryColor: "#eef2f8"
+    primaryTextColor: "#1a1a1a"
+    primaryBorderColor: "#4a6fa5"
+    lineColor: "#5a5a5a"
+    clusterBkg: "#fafafa"
+    clusterBorder: "#c0c0c0"
+  flowchart:
+    nodeSpacing: 45
+    rankSpacing: 55
+    curve: basis
+---
+flowchart TB
+
+subgraph SDK["1. SAMSUNG SDK"]
+  direction LR
+  HTS["HealthTrackingService<br/><i>Samsung, on-device</i>"]
+end
+
+subgraph WATCH["2. WATCH APP - app/ . com.example.testwatch"]
+  direction TB
+
+  MA["MainActivity.kt<br/><i>permissions . kiosk . UI</i>"]
+  CM["ConnectionManager.java"]
+  HTSVC["HrTrackingService.kt<br/><b>THE HUB</b>"]
+
+  SE["SensorEngine.kt<br/><i>which sensors, when</i>"]
+  SS["SensorSpec.kt<br/><i>SENSORS catalogue</i>"]
+  TS["TrackerSession.kt<br/><i>1 per sensor</i>"]
+  MAR["MeasureAlarmReceiver.kt"]
+
+  HRL["HeartRateListener.java"]
+  TDS["TrackerDataSubject.java"]
+
+  BS["BatchSerializer.kt"]
+  DB1[("hr.db<br/>sensor_batches")]
+  DB2[("hr.db<br/>hr_samples")]
+  SYNC{{"syncLoop&#40;&#41;<br/>every 30 s"}}
+end
+
+subgraph PHONE["3. PHONE APP - mobile/ . GENE WANTS THIS GONE"]
+  direction TB
+  HBL["HrBatchListenerService.kt"]
+  PDB[("hr_phone.db<br/>hr_samples + sensor_batches")]
+  PS["PipelineStatus.kt"] --> SA["StatusActivity.kt"]
+  UW["UploadWorker.kt"]
+  SC["ServerConfig.kt<br/><i>host . port . password</i>"]
+end
+
+subgraph SERVER["4. SERVER - misr.sauder.ubc.ca"]
+  direction LR
+  FS[("/data1/wearables<br/>*.json")]
+  MYSQL[("MISR MySQL<br/>schema: Wearable")]
+end
+
+MA -->|startForegroundService| HTSVC
+HTSVC -->|new| CM
+CM <-->|connectService| HTS
+CM -->|onConnectionResult| HTSVC
+HTSVC -->|new| SE
+
+SE -->|reads| SS
+SE -->|"1 per CONTINUOUS spec"| TS
+TS <-->|"getHealthTracker / onDataReceived"| HTS
+TS -->|"spec.extract(dp)"| SE
+SE -->|"store{} lambda"| HTSVC
+HTSVC -->|sensorDao.insert| DB1
+
+MAR -->|ACTION_RUN_ROUND| HTSVC
+HTSVC -->|runRoundNow| SE
+HTSVC -->|scheduleNext| MAR
+
+CM -->|onHeartRateAvailability| HTSVC
+HTSVC -->|new| HRL --> TDS -->|onHeartRateChanged| HTSVC
+HTSVC -->|hrDao.insert| DB2
+
+DB1 -->|unsynced| SYNC
+DB2 -->|unsynced| SYNC
+SYNC <-->|encode| BS
+SYNC -.->|markSynced / pruneSynced| DB1
+
+SYNC ==>|"MessageClient  /hr_batch  /sensor_batch<br/>Bluetooth . 60 KB chunks"| HBL
+
+HBL -->|insertAll| PDB
+HBL --> PS
+HBL -->|enqueue| UW
+PDB -->|unuploaded| UW
+SC --> UW
+UW -.->|markUploaded| PDB
+UW ==>|SFTP put| FS
+FS -.->|"NOT BUILT YET"| MYSQL
+
+classDef hub fill:#fff3c4,stroke:#b8860b,stroke-width:3px
+classDef store fill:#dce9f7,stroke:#2f6094,stroke-width:2px
+classDef change fill:#ffdcdc,stroke:#c0392b,stroke-width:3px
+classDef sdk fill:#e6e6e6,stroke:#777
+
+class HTSVC hub
+class DB1,DB2,PDB,FS,MYSQL store
+class SYNC,MYSQL change
+class HTS sdk
+
+linkStyle default stroke-width:1.4px

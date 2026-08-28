@@ -23,5 +23,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Test Watch"
-include(":app")
+include(":watch")
 include(":mobile")
