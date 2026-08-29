@@ -5,7 +5,7 @@ Data-collection pipeline for the UBC Data + AI Lab (Sauder) / SRCA sleep-health 
 
 ## The repo at a glance
 
-Three folders hold everything we wrote; everything else is documentation or build machinery.
+Two folders hold everything we wrote; everything else is documentation or build machinery.
 
 ```
 Wearable-Project/
@@ -28,15 +28,10 @@ Wearable-Project/
 │                  ├─ upload/  the SFTP uploader
 │                  ├─ config/  server credentials (gitignored)
 │                  └─ status/  live dashboard
-├── scripts/    Dev tooling. dev-up.sh = one-shot bring-up: connect ADB
-│               over wifi, launch the watch app, open a live server feed.
 │
 │  ── DOCS ──────────────────────────────────────────────────────────
 ├── docs/
-│   ├─ FILE_MAP.md            every file explained + the path one data point takes
-│   ├─ handoff.md             living session log: device quirks, provisioning, open questions
-│   ├─ architecture.mermaid   the architecture diagram (source; opens in Android Studio)
-│   └─ architecture.svg       same diagram rendered — opens in any browser
+│   └─ handoff.md             living session log: device quirks, provisioning, open questions
 ├── README.md   ← you are here (the only doc allowed at root)
 │
 │  ── BUILD MACHINERY (must live at root — Gradle/IDE look for them there) ──
@@ -48,7 +43,6 @@ Wearable-Project/
 │                         with the exact pinned Gradle version, no install needed
 ├── gradle/               the wrapper's jar + version pin, and libs.versions.toml
 │                         (the one list of all dependency versions)
-├── config/               shared build config that COULD move (proguard rules)
 │
 │  ── GENERATED / IDE-OWNED (safe to ignore, never edit) ─────────────
 ├── .idea/      Android Studio's project settings (IDE writes these)
@@ -62,15 +56,13 @@ Wearable-Project/
 root paths *before* any script runs — and Android Studio's sync assumes the same layout.
 Same for `local.properties` (Android Gradle Plugin) and each module's `build.gradle.kts`
 and `AndroidManifest.xml` inside its module. Everything that was legally movable has
-been moved (`docs/`, `config/`, per-module `config` packages).
+been moved (`docs/`, per-module `config` packages).
 
 ## Going deeper (high level → low level)
 
 1. **This README** — what each top-level thing is.
-2. **[docs/architecture.svg](docs/architecture.svg)** — how the pieces talk to each other.
-3. **[docs/FILE_MAP.md](docs/FILE_MAP.md)** — every file's job, one table per area, plus the flagged open issues.
-4. **[docs/handoff.md](docs/handoff.md)** — the operational details: provisioning, ADB commands, Samsung SDK quirks.
-5. The code, in this order: `watch/.../sensors/SensorSpec.kt` (the sensor catalogue) → `tracking/HrTrackingService.kt` (the hub) → `mobile/.../upload/UploadWorker.kt` (the upload).
+2. **[docs/handoff.md](docs/handoff.md)** — the operational details: provisioning, ADB commands, Samsung SDK quirks.
+3. The code, in this order: `watch/.../sensors/SensorSpec.kt` (the sensor catalogue) → `tracking/HrTrackingService.kt` (the hub) → `mobile/.../upload/UploadWorker.kt` (the upload).
 
 ## Build
 

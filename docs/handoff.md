@@ -392,6 +392,7 @@ adb -s <watch> shell am start -n com.example.testwatch/.presentation.MainActivit
 - **Drain throughput over BT vs WiFi** — measure a real multi-GB `DRAIN_NOW`; if BT-only speeds make end-of-study offload take a day, offload procedure may need the watch on lab WiFi.
 - Phone-side periodic upload floor (B7) — now more important since arrivals come as one huge burst.
 - Should `DRAIN_NOW` (or the high-water drain) also gzip/columnar-encode batches first (proposed in the retired sensor-arch.md §7, in git history)? ~7× fewer bytes over BT would cut drain time proportionally.
+- **Participant ID reassignment on watch reuse.** The study cycles 20 watches across participants monthly (2 out at a time, ~1 month each before returning and reissuing). `ParticipantStore.kt` persists whatever ID it's given indefinitely — there's no reset/clear step. If a returned watch is reissued to a new participant without re-running the `SET_PARTICIPANT_ID` ADB broadcast first, the new participant's data will silently upload under the previous participant's ID with no error or warning anywhere in the pipeline. Needs either (a) a documented manual step in the return/reissue checklist confirming ID reassignment before a watch goes back out, or (b) a code-level safeguard — e.g. clearing the stored ID on some explicit "watch returned" trigger, or a UI/log check that surfaces the current participant ID when the watch boots, so a mismatch is visible before data starts flowing.
 
 ---
 
