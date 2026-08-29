@@ -1,33 +1,28 @@
 # Wearable Project
 
 Data-collection pipeline for the UBC Data + AI Lab (Sauder) / SRCA sleep-health study:
-**Galaxy Watch 8 → paired Android phone → lab server (SFTP)**.
+**Galaxy Watch 8 → lab server (direct SFTP, no phone relay)**.
 
 ## The repo at a glance
 
-Two folders hold everything we wrote; everything else is documentation or build machinery.
+One folder holds everything we wrote; everything else is documentation or build machinery.
 
 ```
 Wearable-Project/
 │
 │  ── OUR CODE ──────────────────────────────────────────────────────
 ├── watch/      Wear OS app. Collects sensor data, buffers it in an
-│               on-watch database, pushes it to the phone.
+│               on-watch database, uploads straight to the server over
+│               SFTP whenever it is charging on WiFi.
 │               └─ src/main/java/com/example/testwatch/
 │                  ├─ sensors/       ← THE SENSOR LAYER (Samsung SDK code)
 │                  ├─ tracking/      the always-on service that runs everything
 │                  ├─ data/          on-watch database (Room)
-│                  ├─ sync/          JSON wire format watch→phone
-│                  ├─ config/        tuning knobs (storage budget, round timings)
+│                  ├─ upload/        SFTP uploader + this watch's Keystore SSH key
+│                  ├─ sync/          upload JSON payload building
+│                  ├─ admin/         ADB broadcasts (participant ID, pubkey export)
+│                  ├─ config/        tuning knobs + server config (no secrets)
 │                  └─ presentation/  the watch face UI
-├── mobile/     Phone companion app. Receives watch batches, stores them,
-│               uploads JSON to the server over SFTP.
-│               └─ src/main/java/com/example/testwatch/mobile/
-│                  ├─ wear/    entry point from the watch
-│                  ├─ data/    phone-side database
-│                  ├─ upload/  the SFTP uploader
-│                  ├─ config/  server credentials (gitignored)
-│                  └─ status/  live dashboard
 │
 │  ── DOCS ──────────────────────────────────────────────────────────
 ├── docs/
@@ -35,7 +30,7 @@ Wearable-Project/
 ├── README.md   ← you are here (the only doc allowed at root)
 │
 │  ── BUILD MACHINERY (must live at root — Gradle/IDE look for them there) ──
-├── settings.gradle.kts   declares the project = :watch + :mobile modules
+├── settings.gradle.kts   declares the project = the :watch module
 ├── build.gradle.kts      root build script (just declares plugin versions)
 ├── gradle.properties     JVM/AndroidX flags for every build
 ├── local.properties      YOUR machine's Android SDK path (gitignored, not shared)
@@ -62,18 +57,17 @@ been moved (`docs/`, per-module `config` packages).
 
 1. **This README** — what each top-level thing is.
 2. **[docs/handoff.md](docs/handoff.md)** — the operational details: provisioning, ADB commands, Samsung SDK quirks.
-3. The code, in this order: `watch/.../sensors/SensorSpec.kt` (the sensor catalogue) → `tracking/HrTrackingService.kt` (the hub) → `mobile/.../upload/UploadWorker.kt` (the upload).
+3. The code, in this order: `watch/.../sensors/SensorSpec.kt` (the sensor catalogue) → `tracking/HrTrackingService.kt` (the hub) → `upload/UploadWorker.kt` (the upload).
 
 ## Build
 
 ```bash
 ./gradlew :watch:installDebug    # watch APK
-./gradlew :mobile:installDebug   # phone APK
 ```
 
-Before the phone can upload: copy
-`mobile/src/main/java/com/example/testwatch/mobile/config/ServerConfig.kt.example`
-to `ServerConfig.kt` (same folder, gitignored) and fill in credentials.
+Before a watch can upload, provision its key once: `adb shell am broadcast -a
+com.example.testwatch.GET_PUBKEY` prints the public-key line; append it to the
+server account's `~/.ssh/authorized_keys` (details in docs/handoff.md).
 
 ## Research context
 

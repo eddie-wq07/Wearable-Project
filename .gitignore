@@ -22,10 +22,5 @@ local.properties
 
 .claude/
 
-# Server credentials (drop your SSH private key here locally only)
-mobile/src/main/assets/server_key.pem
-# Real server config stays local; copy ServerConfig.kt.example to ServerConfig.kt and fill in
-mobile/src/main/java/com/example/testwatch/mobile/config/ServerConfig.kt
-
 # Kotlin 2.x session caches (generated)
 .kotlin/
