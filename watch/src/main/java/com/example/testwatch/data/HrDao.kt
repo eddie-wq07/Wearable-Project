@@ -1,5 +1,8 @@
 package com.example.testwatch.data
 
+/** Room queries for the hr_samples table: insert, pull unsynced (newest-first), mark synced,
+ *  prune old synced rows, and the emergency dropOldestUnsynced back-pressure valve. */
+
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query

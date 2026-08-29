@@ -1,5 +1,8 @@
 package com.example.testwatch.data
 
+/** Room queries for the sensor_batches table — same pattern as HrDao, plus unsyncedBytes() to
+ *  track buffer size against StorageConfig's GB thresholds. */
+
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query

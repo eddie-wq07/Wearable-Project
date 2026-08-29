@@ -1,5 +1,7 @@
 package com.example.testwatch.presentation.theme
 
+/** Visual theming for the watch UI. */
+
 import androidx.compose.runtime.Composable
 import androidx.wear.compose.material3.MaterialTheme
 

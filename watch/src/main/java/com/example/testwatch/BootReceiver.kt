@@ -1,16 +1,13 @@
 package com.example.testwatch
 
+/** Restarts HrTrackingService after device reboot, so tracking resumes without manual relaunch. */
+
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.example.testwatch.tracking.HrTrackingService
 
-/** Restarts the tracking service after a reboot so a power-cycled watch resumes
- *  collection without anyone opening the app. BOOT_COMPLETED is exempt from the
- *  background foreground-service-start restriction for health-type services;
- *  if the OS still refuses, the service logs and stops, and the next app open
- *  or measurement alarm brings it back. */
 class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {

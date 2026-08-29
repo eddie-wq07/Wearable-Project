@@ -1,5 +1,8 @@
 package com.example.testwatch.sensors
 
+/** Registry of every supported sensor (ppg, accel, skin_temp, ecg, spo2, bia, mf_bia): SDK type,
+ *  continuous vs on-demand, and how to extract values from a raw SDK data point. */
+
 import com.samsung.android.service.health.tracking.data.DataPoint
 import com.samsung.android.service.health.tracking.data.HealthTrackerType
 import com.samsung.android.service.health.tracking.data.PpgType

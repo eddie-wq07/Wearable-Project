@@ -1,5 +1,8 @@
 package com.example.testwatch.sensors;
 
+/** Manages the connection to the Samsung Health Sensor SDK service. Shared infrastructure used
+ *  by both the legacy HR lane and the generic SensorEngine — not HR-specific. */
+
 import android.app.Activity;
 import android.content.Context;
 import android.os.Handler;

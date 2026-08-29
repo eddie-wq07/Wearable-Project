@@ -1,5 +1,8 @@
 package com.example.testwatch.tracking
 
+/** Live state (BPM, connection status, buffered bytes, dropped rows) read by MainActivity to
+ *  display on the watch face. Not logic — a one-way readout of HrTrackingService's state. */
+
 import kotlinx.coroutines.flow.MutableStateFlow
 
 object TrackingState {

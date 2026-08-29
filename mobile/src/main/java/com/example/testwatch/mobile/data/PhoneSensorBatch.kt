@@ -1,9 +1,10 @@
 package com.example.testwatch.mobile.data
 
+/** Room entity mirroring watch sensor batches on the phone, plus upload bookkeeping. */
+
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-/** Mirror of the watch's sensor_batches rows; points is a JSON array of {ts, ...fields}. */
 @Entity(tableName = "sensor_batches")
 data class PhoneSensorBatch(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

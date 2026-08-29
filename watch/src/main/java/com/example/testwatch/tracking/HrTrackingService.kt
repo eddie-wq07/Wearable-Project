@@ -1,5 +1,8 @@
 package com.example.testwatch.tracking
 
+/** The hub. Foreground service tying together the SDK connection, both sensor paths, Room writes,
+ *  and the store-and-forward drain loop to the phone. */
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager

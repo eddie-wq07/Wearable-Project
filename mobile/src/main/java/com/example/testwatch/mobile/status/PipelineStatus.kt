@@ -1,12 +1,9 @@
 package com.example.testwatch.mobile.status
 
+/** In-memory counters (batches received, uploads OK/failed, totals) read by StatusActivity. */
+
 import kotlinx.coroutines.flow.MutableStateFlow
 
-/**
- * Live in-memory pipeline state. Updated by HrBatchListenerService when a batch
- * arrives, and by UploadWorker on each upload attempt. Observed by StatusActivity
- * to render a live dashboard.
- */
 object PipelineStatus {
     // Batch reception
     val lastBatchReceivedMs = MutableStateFlow(0L)

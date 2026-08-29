@@ -1,5 +1,7 @@
 package com.example.testwatch.mobile.boot
 
+/** Re-enqueues UploadWorker after the phone reboots, so pending uploads resume automatically. */
+
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent

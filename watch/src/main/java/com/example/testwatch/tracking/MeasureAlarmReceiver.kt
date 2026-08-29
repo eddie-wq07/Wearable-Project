@@ -1,13 +1,14 @@
 package com.example.testwatch.tracking
 
+/** Doze-proof alarm that fires every ON_DEMAND_INTERVAL_MIN to trigger the next on-demand
+ *  sensor round, even while the watch is asleep. */
+
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 
-/** Exact alarm-clock tick for the on-demand round: fires even in doze with the
- *  screen off, and restarts the tracking service if it has died. */
 class MeasureAlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {

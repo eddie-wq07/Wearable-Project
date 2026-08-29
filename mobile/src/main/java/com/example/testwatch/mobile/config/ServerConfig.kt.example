@@ -1,16 +1,8 @@
 package com.example.testwatch.mobile.config
 
-/**
- * Server connection config for SFTP upload.
- *
- * Copy this file to ServerConfig.kt (same directory) and fill in the real
- * values. ServerConfig.kt is gitignored so credentials never leave this
- * machine.
- *
- * TEMPORARY: using password auth because that's what we have for the lab box.
- * Once an SSH key is provisioned, switch UploadWorker.uploadOverSftp() to use
- * loadKeys()/authPublickey() and drop PASSWORD from this file.
- */
+/** Template for ServerConfig.kt (HOST/PORT/USER/PASSWORD/REMOTE_DIR). The real file is gitignored
+ *  and never committed — copy this and fill in real values locally. */
+
 object ServerConfig {
     const val HOST = "misr.sauder.ubc.ca"
     const val PORT = 16800

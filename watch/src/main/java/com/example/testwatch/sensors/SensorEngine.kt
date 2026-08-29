@@ -1,5 +1,8 @@
 package com.example.testwatch.sensors
 
+/** Orchestrates every sensor in the SensorSpec registry: runs continuous sensors permanently and
+ *  on-demand sensors one at a time per alarm tick (they share hardware). */
+
 import android.util.Log
 import com.example.testwatch.config.SensorConfig
 import com.example.testwatch.sync.BatchSerializer
@@ -11,11 +14,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-/**
- * Runs every supported continuous tracker permanently and, every
- * [SensorConfig.ON_DEMAND_INTERVAL_MIN] minutes, works through the on-demand
- * trackers one at a time (they share sensor hardware and cannot overlap).
- */
 class SensorEngine(
     private val service: HealthTrackingService,
     private val scope: CoroutineScope,

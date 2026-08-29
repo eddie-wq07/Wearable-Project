@@ -1,5 +1,8 @@
 package com.example.testwatch.data
 
+/** Room database definition (hr.db) tying together HrSample/SensorBatch entities and their DAOs.
+ *  Holds the MIGRATION_1_2 step that added the sensor_batches table. */
+
 import android.content.Context
 import androidx.room.Database
 import androidx.room.Room

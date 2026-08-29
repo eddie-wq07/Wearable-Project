@@ -1,5 +1,7 @@
 package com.example.testwatch.mobile.data
 
+/** Room database (hr_phone.db) for the phone-side HR and sensor mirror tables. */
+
 import android.content.Context
 import androidx.room.Database
 import androidx.room.Room

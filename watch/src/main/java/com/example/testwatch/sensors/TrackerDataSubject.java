@@ -1,5 +1,8 @@
 package com.example.testwatch.sensors;
 
+/** Observer-pattern subject that broadcasts HR data/errors from HeartRateListener up to
+ *  HrTrackingService. Part of the legacy HR lane only. */
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;

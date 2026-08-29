@@ -1,5 +1,7 @@
 package com.example.testwatch.mobile.data
 
+/** Room queries for the phone-side hr_samples mirror table. */
+
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query

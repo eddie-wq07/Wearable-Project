@@ -1,5 +1,8 @@
 package com.example.testwatch.sensors;
 
+/** Legacy, HR-only lane predating SensorSpec/SensorEngine. Subscribes to the continuous HR tracker
+ *  directly and feeds the hr_samples table. Runs in parallel with the generic sensor path. */
+
 import android.os.Handler;
 import android.util.Log;
 

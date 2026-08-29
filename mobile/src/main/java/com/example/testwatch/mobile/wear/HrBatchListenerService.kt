@@ -1,5 +1,8 @@
 package com.example.testwatch.mobile.wear
 
+/** Receives /hr_batch and /sensor_batch messages from the watch over the Wear Data Layer, decodes
+ *  them via BatchSerializer, writes into phone Room, and enqueues UploadWorker. */
+
 import android.util.Log
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy

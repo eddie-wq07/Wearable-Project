@@ -1,8 +1,10 @@
 package com.example.testwatch.config
 
+/** Timing constants for on-demand sensor rounds (interval, first-round delay, timeout) and the
+ *  dummy TrackerUserProfile BIA/mf_bia measurements require. */
+
 import com.samsung.android.service.health.tracking.data.TrackerUserProfile
 
-/** Timing knobs for the on-demand measurement rounds (see sensors/SensorEngine.kt). */
 object SensorConfig {
     /** How often the on-demand measurement round runs. */
     const val ON_DEMAND_INTERVAL_MIN = 5L

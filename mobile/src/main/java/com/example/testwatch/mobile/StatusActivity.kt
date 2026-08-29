@@ -1,5 +1,7 @@
 package com.example.testwatch.mobile
 
+/** Live pipeline dashboard on the phone: batches received, upload success/failure counts. */
+
 import android.app.Activity
 import android.graphics.Color
 import android.graphics.Typeface
@@ -31,11 +33,6 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * Whoop-style live dashboard: hero HR figure + one stat tile per sensor.
- * Values wear text tokens; the colored dot carries sensor identity
- * (dark-mode categorical palette from the dataviz reference).
- */
 class StatusActivity : Activity() {
 
     private object Ui {

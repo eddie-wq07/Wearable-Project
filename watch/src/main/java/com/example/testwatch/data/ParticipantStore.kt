@@ -1,5 +1,8 @@
 package com.example.testwatch.data
 
+/** SharedPreferences wrapper for the participant ID. Auto-generates a random ID on first read;
+ *  overridable via the SET_PARTICIPANT_ID ADB broadcast. */
+
 import android.content.Context
 import java.util.UUID
 

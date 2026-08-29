@@ -1,5 +1,7 @@
 package com.example.testwatch.mobile.data
 
+/** Room queries for the phone-side sensor_batches mirror table, plus counts() for the dashboard. */
+
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query

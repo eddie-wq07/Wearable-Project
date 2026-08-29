@@ -1,5 +1,8 @@
 package com.example.testwatch.sensors
 
+/** Generic per-sensor wrapper around the SDK tracker (start/stop/subscribe), used by SensorEngine
+ *  for every sensor in the registry regardless of which one it is. */
+
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -8,8 +11,6 @@ import com.samsung.android.service.health.tracking.HealthTracker
 import com.samsung.android.service.health.tracking.HealthTrackingService
 import com.samsung.android.service.health.tracking.data.DataPoint
 
-/** Generic replacement for a per-sensor listener: attaches [spec]'s tracker and
- *  forwards each SDK callback as a list of {ts, ...fields} points. */
 class TrackerSession(
     val spec: SensorSpec,
     private val service: HealthTrackingService,

@@ -1,5 +1,8 @@
 package com.example.testwatch.mobile.data
 
+/** Room entity mirroring watch HR samples on the phone, plus participantId/receivedAt/uploaded
+ *  bookkeeping. */
+
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 

@@ -1,5 +1,8 @@
 package com.example.testwatch.sync
 
+/** Converts Room rows into the JSON wire format sent from watch to phone (and decodes on the
+ *  receiving side). Two parallel formats: WireBatch for HR, WireSensorBatch for everything else. */
+
 import com.example.testwatch.data.HrSample
 import com.example.testwatch.data.SensorBatch
 import kotlinx.serialization.Serializable

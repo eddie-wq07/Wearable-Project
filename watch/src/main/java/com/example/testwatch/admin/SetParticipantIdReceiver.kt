@@ -1,5 +1,8 @@
 package com.example.testwatch.admin
 
+/** Listens for an ADB broadcast (SET_PARTICIPANT_ID) to overwrite the auto-generated participant ID
+ *  stored in ParticipantStore. Needed to assign a real participant ID per watch across study cycles. */
+
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent

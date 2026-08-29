@@ -1,5 +1,7 @@
 package com.example.testwatch.presentation
 
+/** Watch UI: requests permissions, starts HrTrackingService, displays live BPM/skin-temp/SpO2. */
+
 import android.Manifest
 import android.content.Intent
 import android.os.Build

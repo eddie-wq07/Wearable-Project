@@ -1,5 +1,7 @@
 package com.example.testwatch.mobile.upload
 
+/** SFTP upload to the MISR server via sshj, with WorkManager retry/exponential backoff. */
+
 import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
