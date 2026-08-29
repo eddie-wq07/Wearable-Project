@@ -69,6 +69,14 @@
         </receiver>
 
         <receiver
+            android:name=".admin.GetPublicKeyReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.example.testwatch.GET_PUBKEY" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".BootReceiver"
             android:exported="true"
             android:permission="android.permission.RECEIVE_BOOT_COMPLETED">

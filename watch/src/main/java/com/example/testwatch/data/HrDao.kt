@@ -12,8 +12,8 @@ interface HrDao {
     @Insert
     suspend fun insert(sample: HrSample): Long
 
-    // Newest first: live data reaches the phone within one cycle even while a
-    // large backlog drains behind it.
+    // Newest first: fresh data reaches the server in the first upload file even
+    // while a large backlog drains behind it.
     @Query("SELECT * FROM hr_samples WHERE synced = 0 ORDER BY id DESC LIMIT :limit")
     suspend fun unsynced(limit: Int = 1000): List<HrSample>
 

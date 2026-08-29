@@ -1,7 +1,7 @@
 package com.example.testwatch.config
 
-/** Store-and-forward budget: check interval, high-water/low-free/emergency GB thresholds, and
- *  drain pacing. Governs when the watch actually sends its buffered backlog to the phone. */
+/** Store-and-forward budget: check interval and high-water/low-free/emergency GB thresholds.
+ *  Governs when the watch asks UploadWorker for an immediate pass at the buffered backlog. */
 
 object StorageConfig {
     /** How often the loop re-checks buffer size and free space. Replaces the
@@ -27,8 +27,4 @@ object StorageConfig {
 
     /** SQLite/Room overhead applied on top of logical JSON bytes, percent. */
     const val OVERHEAD_PCT = 115L
-
-    /** Pause between drain rounds so a multi-GB backlog doesn't saturate the
-     *  Bluetooth link or starve the sensor callbacks. */
-    const val DRAIN_PAUSE_MS = 200L
 }

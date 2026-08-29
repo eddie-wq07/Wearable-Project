@@ -22,7 +22,7 @@ object TrackingState {
     /** Store-and-forward buffer: estimated unsynced bytes held on the watch. */
     val bufferedBytes = MutableStateFlow(0L)
 
-    /** True while the backlog is draining to the phone. */
+    /** True while UploadWorker is pushing the backlog to the server. */
     val draining = MutableStateFlow(false)
 
     /** Rows discarded by emergency back-pressure. Nonzero = a data gap the

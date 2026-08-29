@@ -1,7 +1,7 @@
 package com.example.testwatch.tracking
 
 /** The hub. Foreground service tying together the SDK connection, both sensor paths, Room writes,
- *  and the store-and-forward drain loop to the phone. */
+ *  and the storage monitor that hands the buffered backlog to UploadWorker (direct SFTP). */
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -22,7 +22,6 @@ import com.example.testwatch.config.SensorConfig
 import com.example.testwatch.config.StorageConfig
 import com.example.testwatch.data.HrDatabase
 import com.example.testwatch.data.HrSample
-import com.example.testwatch.data.ParticipantStore
 import com.example.testwatch.data.SensorBatch
 import com.example.testwatch.sensors.ConnectionManager
 import com.example.testwatch.sensors.ConnectionObserver
@@ -31,8 +30,7 @@ import com.example.testwatch.sensors.OffBodyStatus
 import com.example.testwatch.sensors.SensorEngine
 import com.example.testwatch.sensors.TrackerDataSubject
 import com.example.testwatch.sensors.TrackerObserver
-import com.example.testwatch.sync.BatchSerializer
-import com.google.android.gms.wearable.Wearable
+import com.example.testwatch.upload.UploadWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -40,14 +38,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlin.math.roundToInt
 
 class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, SensorEventListener {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var syncJob: Job? = null
-    private val drainInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private var trackerDataSubject: TrackerDataSubject? = null
     private var connectionManager: ConnectionManager? = null
@@ -59,7 +55,6 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
     private val db by lazy { HrDatabase.get(this) }
     private val dao by lazy { db.hrDao() }
     private val sensorDao by lazy { db.sensorBatchDao() }
-    private val participantStore by lazy { ParticipantStore(this) }
 
     override fun onCreate() {
         super.onCreate()
@@ -91,6 +86,8 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
         if (syncJob == null || syncJob?.isActive != true) {
             syncJob = scope.launch { syncLoop() }
         }
+        // Standing upload schedule: fires whenever the watch is charging on WiFi.
+        UploadWorker.schedulePeriodic(this)
         if (intent?.action == ACTION_RUN_ROUND) {
             // Hold the CPU for the ~3-minute round; times out on its own.
             (getSystemService(POWER_SERVICE) as android.os.PowerManager)
@@ -100,12 +97,9 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
             MeasureAlarmReceiver.scheduleNext(this, SensorConfig.ON_DEMAND_INTERVAL_MIN)
         }
         if (intent?.action == ACTION_DRAIN_NOW) {
-            // End-of-study offload: multi-GB backlogs take a while, so run this
-            // with the watch on its charger. Wakelock keeps BT sends flowing.
-            (getSystemService(POWER_SERVICE) as android.os.PowerManager)
-                .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "testwatch:drain")
-                .acquire(60 * 60_000L)
-            scope.launch { drainAll("manual DRAIN_NOW") }
+            // End-of-study offload. The worker is constraint-gated on charger + WiFi,
+            // which is the offload procedure anyway; WorkManager holds its own wakelock.
+            UploadWorker.enqueueNow(this, "manual DRAIN_NOW")
         }
         return START_STICKY
     }
@@ -272,14 +266,15 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
     }
 
     /**
-     * Store-and-forward (2026-08-26): data accumulates in hr.db and is pushed
-     * to the phone only when the buffer crosses StorageConfig.HIGH_WATER_BYTES,
-     * free space falls below MIN_FREE_BYTES, or a DRAIN_NOW broadcast arrives.
+     * Storage monitor. Data accumulates in hr.db; the actual upload runs in
+     * UploadWorker whenever the watch is charging on WiFi. This loop only keeps
+     * the dashboard estimate fresh, applies emergency back-pressure, and asks
+     * for an immediate upload attempt when the budget is blown.
      */
     private suspend fun syncLoop() {
         while (true) {
             try {
-                checkStorageAndMaybeDrain()
+                checkStorage()
             } catch (t: Throwable) {
                 Log.w(TAG, "storage check failed", t)
             }
@@ -287,7 +282,7 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
         }
     }
 
-    private suspend fun checkStorageAndMaybeDrain() {
+    private suspend fun checkStorage() {
         val buffered = bufferedBytesEstimate()
         TrackingState.bufferedBytes.value = buffered
         val free = android.os.StatFs(filesDir.path).availableBytes
@@ -302,25 +297,7 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
         }
 
         if (buffered >= StorageConfig.HIGH_WATER_BYTES || free < StorageConfig.MIN_FREE_BYTES) {
-            drainAll("buffered=${buffered / MB} MB, free=${free / MB} MB")
-        }
-    }
-
-    private suspend fun drainAll(reason: String) {
-        if (!drainInFlight.compareAndSet(false, true)) return
-        Log.i(TAG, "drain start: $reason")
-        TrackingState.draining.value = true
-        try {
-            var rounds = 0
-            while (syncOnce()) {
-                rounds++
-                delay(StorageConfig.DRAIN_PAUSE_MS)
-            }
-            Log.i(TAG, "drain stopped after $rounds rounds")
-        } finally {
-            TrackingState.draining.value = false
-            TrackingState.bufferedBytes.value = bufferedBytesEstimate()
-            drainInFlight.set(false)
+            UploadWorker.enqueueNow(this, "buffered=${buffered / MB} MB, free=${free / MB} MB")
         }
     }
 
@@ -329,90 +306,13 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
         return logical * StorageConfig.OVERHEAD_PCT / 100
     }
 
-    /** One bounded push to the phone. Returns true when something was sent and
-     *  marked synced (drain should keep going); false when the buffer is empty
-     *  or the phone is unreachable (buffer holds, retry next check). */
-    private suspend fun syncOnce(): Boolean {
-        val hrPending = dao.unsynced(BATCH_LIMIT)
-        val sensorPending = sensorDao.unsynced(SENSOR_BATCH_LIMIT)
-        if (hrPending.isEmpty() && sensorPending.isEmpty()) return false
-        val participantId = participantStore.participantId
-        val nodes = Wearable.getNodeClient(applicationContext).connectedNodes.await()
-        if (nodes.isEmpty()) {
-            Log.i(TAG, "no connected nodes; buffer holds")
-            return false
-        }
-        val messageClient = Wearable.getMessageClient(applicationContext)
-        var sentAny = false
-
-        if (hrPending.isNotEmpty()) {
-            val payload = BatchSerializer.encode(participantId, hrPending)
-            if (sendToAnyNode(messageClient, nodes, MSG_PATH, payload, "${hrPending.size} HR samples")) {
-                dao.markSynced(hrPending.map { it.id })
-                dao.pruneSynced(hrPending.last().id - KEEP_RECENT_SYNCED)
-                sentAny = true
-            }
-        }
-
-        // MessageClient caps a message at ~100 KB; ship sensor rows in size-capped chunks.
-        var i = 0
-        while (i < sensorPending.size) {
-            val chunk = mutableListOf<SensorBatch>()
-            var bytes = 0
-            while (i < sensorPending.size &&
-                (chunk.isEmpty() || bytes + sensorPending[i].points.length < MAX_SENSOR_MSG_BYTES)
-            ) {
-                bytes += sensorPending[i].points.length
-                chunk += sensorPending[i]
-                i++
-            }
-            val payload = BatchSerializer.encodeSensorRows(participantId, chunk)
-            if (!sendToAnyNode(messageClient, nodes, SENSOR_MSG_PATH, payload, "${chunk.size} sensor rows")) {
-                // Link dropped mid-drain: stop; unsent rows stay buffered.
-                return false
-            }
-            sensorDao.markSynced(chunk.map { it.id })
-            sentAny = true
-        }
-        if (sensorPending.isNotEmpty()) {
-            sensorDao.pruneSynced(sensorPending.last().id - KEEP_RECENT_SYNCED)
-        }
-        return sentAny
-    }
-
-    private suspend fun sendToAnyNode(
-        messageClient: com.google.android.gms.wearable.MessageClient,
-        nodes: List<com.google.android.gms.wearable.Node>,
-        path: String,
-        payload: ByteArray,
-        what: String,
-    ): Boolean {
-        var anyOk = false
-        for (node in nodes) {
-            try {
-                messageClient.sendMessage(node.id, path, payload).await()
-                anyOk = true
-                Log.i(TAG, "sent $what to ${node.displayName}")
-            } catch (t: Throwable) {
-                Log.w(TAG, "sendMessage to ${node.id} failed: ${t.message}")
-            }
-        }
-        return anyOk
-    }
-
     companion object {
-        const val MSG_PATH = "/hr_batch"
-        const val SENSOR_MSG_PATH = "/sensor_batch"
         const val ACTION_RUN_ROUND = "com.example.testwatch.RUN_ROUND"
         const val ACTION_DRAIN_NOW = "com.example.testwatch.DRAIN_NOW"
         private const val CHANNEL_ID = "hr_tracking"
         private const val MEASURE_CHANNEL_ID = "measurements"
         private const val NOTIF_ID = 1001
         private const val MEASURE_NOTIF_ID = 1002
-        private const val SENSOR_BATCH_LIMIT = 300
-        private const val MAX_SENSOR_MSG_BYTES = 60_000
-        private const val BATCH_LIMIT = 500
-        private const val KEEP_RECENT_SYNCED = 1000L
         private const val MB = 1024L * 1024L
         private const val TAG = "HrTrackingService"
     }

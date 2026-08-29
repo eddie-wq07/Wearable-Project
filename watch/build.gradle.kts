@@ -31,14 +31,24 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/LICENSE*",
+                "META-INF/NOTICE*",
+                "META-INF/DEPENDENCIES",
+                "META-INF/INDEX.LIST",
+            )
+        }
+    }
 }
 
 dependencies {
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))
-    implementation(libs.play.services.wearable)
     implementation(libs.coroutines.android)
-    implementation(libs.coroutines.play.services)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.sshj)
+    implementation(libs.bcprov)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
