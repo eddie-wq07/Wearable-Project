@@ -1,6 +1,8 @@
 package com.example.testwatch.presentation
 
-/** Watch UI: requests permissions, starts HrTrackingService, displays live BPM/skin-temp/SpO2. */
+/** Watch UI: requests permissions, starts HrTrackingService. Participant-facing screen is
+ *  deliberately minimal — a good/not-good status and the daily Measure button; no data
+ *  readouts (values go to the server, not the wrist). */
 
 import android.Manifest
 import android.content.Intent
@@ -10,10 +12,10 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,8 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.wear.compose.foundation.lazy.TransformingLazyColumn
-import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
 import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.ScreenScaffold
@@ -98,128 +98,78 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Dark-mode categorical palette (dataviz reference); values wear text tokens,
-// the colored dot carries sensor identity.
+// Participant-facing palette: one status color at a time, no data colors needed.
 private val TextSecondary = Color(0xFFC3C2B7)
-private val DotHr = Color(0xFF3987E5)
-private val DotTemp = Color(0xFFC98500)
-private val DotSpo2 = Color(0xFFD55181)
-private val DotLive = Color(0xFF008300)
+private val StatusGood = Color(0xFF008300)
+private val StatusWarn = Color(0xFFC98500)
 
 @Composable
 fun WearApp() {
-    val bpm by TrackingState.latestBpm.collectAsState()
-    val status by TrackingState.latestStatus.collectAsState()
     val ready by TrackingState.ready.collectAsState()
     val worn by TrackingState.deviceWorn.collectAsState()
     val measuring by TrackingState.currentMeasurement.collectAsState()
-    val skinTemp by TrackingState.latestSkinTemp.collectAsState()
-    val spo2 by TrackingState.latestSpo2.collectAsState()
-
-    val statusText = when {
-        !ready -> "connecting"
-        !worn -> "off wrist"
-        status == 1 -> "tracking"
-        status == -1 -> "off wrist"
-        status == -2 -> "motion"
-        status == -3 -> "low signal"
-        else -> "status $status"
-    }
 
     TestWatchTheme {
         AppScaffold {
-            val listState = rememberTransformingLazyColumnState()
-            ScreenScaffold(scrollState = listState) { contentPadding ->
-                TransformingLazyColumn(contentPadding = contentPadding, state = listState) {
-                    item {
-                        val m = measuring
-                        if (m != null) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Text("MEASURING", style = MaterialTheme.typography.labelSmall, color = DotTemp)
-                                Text(
-                                    m,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    textAlign = TextAlign.Center,
-                                )
-                                Text(
-                                    "Hold position until the next buzz",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = TextSecondary,
-                                    textAlign = TextAlign.Center,
-                                )
-                            }
-                        } else {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                MetricLabel("HEART RATE", DotHr)
-                                Text(
-                                    if (bpm > 0) "$bpm" else "--",
-                                    style = MaterialTheme.typography.displayLarge,
-                                )
-                                Text("bpm · $statusText", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
-                            }
-                        }
-                    }
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                        ) {
-                            MetricCell("SKIN", if (skinTemp.isNaN()) "--" else "%.1f°".format(skinTemp), DotTemp)
-                            MetricCell("SPO2", if (spo2 > 0) "$spo2%" else "--", DotSpo2)
-                        }
-                    }
-                    item { OnDemandSection() }
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Dot(if (ready) DotLive else TextSecondary)
-                            Text(
-                                if (ready) "  ppg · accel · temp live" else "  streams idle",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary,
-                            )
-                        }
-                    }
+            ScreenScaffold { contentPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(contentPadding),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val m = measuring
+                    if (m != null) MeasuringNotice(m) else StatusHome(ready = ready, worn = worn)
                 }
             }
         }
     }
 }
 
+/** Mid-measurement instruction — the one moment the participant must do something. */
 @Composable
-private fun MetricLabel(label: String, dot: Color) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Dot(dot)
-        Text("  $label", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
-    }
-}
-
-@Composable
-private fun MetricCell(label: String, value: String, dot: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        MetricLabel(label, dot)
-        Text(value, style = MaterialTheme.typography.titleLarge)
-    }
-}
-
-@Composable
-private fun Dot(color: Color) {
-    Box(
+private fun MeasuringNotice(prompt: String) {
+    Column(
         modifier = Modifier
-            .size(6.dp)
-            .background(color, CircleShape),
-    )
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("MEASURING", style = MaterialTheme.typography.labelSmall, color = StatusWarn)
+        Text(
+            prompt,
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            "Hold still until the next buzz",
+            style = MaterialTheme.typography.labelSmall,
+            color = TextSecondary,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** Everything the participant needs: is the watch doing its job, and the Measure button. */
+@Composable
+private fun StatusHome(ready: Boolean, worn: Boolean) {
+    val (color, text) = when {
+        !ready -> TextSecondary to "Starting up…"
+        !worn -> StatusWarn to "Place watch on wrist"
+        else -> StatusGood to "All good"
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .background(color, CircleShape),
+            )
+            Text("  $text", style = MaterialTheme.typography.titleMedium)
+        }
+        OnDemandSection()
+    }
 }
