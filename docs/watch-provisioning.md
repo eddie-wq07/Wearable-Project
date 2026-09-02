@@ -49,7 +49,21 @@ adb -s <watch> shell dpm set-device-owner com.example.testwatch/com.example.test
 ```
 
 If dpm refuses with "already some accounts" → an account slipped in during setup; remove it
-in watch settings (or reset and redo Phase 1, skipping sign-ins).
+in watch settings (or reset and redo Phase 1, skipping sign-ins). On Samsung-account
+watches the usual culprit shows as `type=com.samsung.android.wearable.samsungaccount`;
+sign out via watch Settings → Account and backup → Samsung account.
+
+## Phase 3.5 — Samsung Health developer mode [you] — DO THIS BEFORE LAUNCHING THE APP
+
+Factory reset wipes this toggle; without it the sensor SDK refuses to connect
+(`SDK_POLICY_ERROR`, handoff §7) and the watch records **nothing — silently**. On the
+watch:
+
+1. Open **Samsung Health** → **Settings** → **About Samsung Health**.
+2. Rapid-tap the version number ~10 times → "Developer mode enabled" toast.
+
+Do it now, while the app hasn't pinned the screen yet — once kiosk is armed you'd have
+to passcode-exit first.
 
 ## Phase 4 — identity + SSH key [mac]
 
@@ -92,8 +106,8 @@ On-watch checks [you]:
 Let it buffer ≥5 min of data, then put the watch on its charger [you] and force a drain:
 
 ```bash
-adb -s <watch> shell am start-foreground-service \
-    -n com.example.testwatch/.tracking.HrTrackingService -a com.example.testwatch.DRAIN_NOW
+adb -s <watch> shell am broadcast -a com.example.testwatch.DRAIN_NOW \
+    -n com.example.testwatch/.admin.DrainNowReceiver
 adb -s <watch> logcat -s UploadWorker:V | grep -E "SFTP|auth|upload"
 ```
 

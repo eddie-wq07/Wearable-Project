@@ -257,9 +257,10 @@ adb -s <watch> shell am broadcast -a com.example.testwatch.GET_PUBKEY \
 
 # End-of-study offload: request an immediate upload pass
 # (runs the moment the watch is charging on WiFi; resumes on its own if interrupted):
-adb -s <watch> shell am start-foreground-service \
-    -n com.example.testwatch/.tracking.HrTrackingService \
-    -a com.example.testwatch.DRAIN_NOW
+adb -s <watch> shell am broadcast -a com.example.testwatch.DRAIN_NOW \
+    -n com.example.testwatch/.admin.DrainNowReceiver
+# (The service itself is not exported; the old start-foreground-service form is
+#  rejected by the OS — DrainNowReceiver exists precisely for this.)
 
 # Watch buffer level / upload progress:
 adb -s <watch> logcat -s HrTrackingService:V UploadWorker:V | grep -E "SFTP|upload|buffer|EMERGENCY"

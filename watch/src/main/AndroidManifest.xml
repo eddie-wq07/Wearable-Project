@@ -77,6 +77,14 @@
         </receiver>
 
         <receiver
+            android:name=".admin.DrainNowReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.example.testwatch.DRAIN_NOW" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".BootReceiver"
             android:exported="true"
             android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
