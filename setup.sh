@@ -19,7 +19,14 @@
 # tracking is recording and lock task is LOCKED.
 set -uo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve through symlinks (the global `watch-setup` command is a symlink to this file).
+SRC="${BASH_SOURCE[0]}"
+while [ -L "$SRC" ]; do
+  DIR="$(cd -P "$(dirname "$SRC")" && pwd)"
+  SRC="$(readlink "$SRC")"
+  [[ "$SRC" != /* ]] && SRC="$DIR/$SRC"
+done
+REPO="$(cd -P "$(dirname "$SRC")" && pwd)"
 APK="$REPO/watch/build/outputs/apk/debug/watch-debug.apk"
 SERVER="edward@misr.sauder.ubc.ca"
 SSH_PORT=16800
@@ -57,8 +64,13 @@ fi
 # ---------- find the watch ----------
 step "Locating watch"
 if [ -z "$ADDR" ]; then
-  ADDR=$(adb mdns services 2>/dev/null | awk '/_adb-tls-connect/ {print $3}' | head -1)
-  [ -n "$ADDR" ] || die "no watch found on the network — pass <ip:port> (watch: Wireless debugging screen shows it)"
+  CANDIDATES=$(adb mdns services 2>/dev/null | awk '/_adb-tls-connect/ {print $3}' | sort -u)
+  COUNT=$(echo "$CANDIDATES" | grep -c . || true)
+  [ "$COUNT" -ge 1 ] || die "no watch found on the network — pass <ip:port> (watch: Wireless debugging screen shows it)"
+  [ "$COUNT" -eq 1 ] || die "multiple watches on the network — pass the right <ip:port> explicitly:
+$CANDIDATES"
+  ADDR="$CANDIDATES"
+  echo "    auto-discovered: $ADDR"
 fi
 adb connect "$ADDR" >/dev/null 2>&1
 W=(-s "$ADDR")
