@@ -202,7 +202,7 @@ fits the budget with a wide margin either way.
    `/data1/wearables/<participantId>/` on first upload (the base dir is group-writable;
    shared-account model per docs/new-arch-build.md — no chroot, watches are not isolated
    from each other).
-3. **Server-side ingestion** — write a small script that scans `/data1/wearables/*/` for `hr_*_*.json` / `sensors_*_*.json` files and inserts into SQLite. Every timestamp in the files is a readable string in the format `MMM d yyyy, h:mm:ss a zzz` (US locale, watch-local timezone — handle both `PDT` and `PST`); there are no epoch values and no `watch_serial` in the uploads. The script parses `time` / `received_at` / `uploaded_at` back into integer epoch-ms columns for indexing. Suggested schema:
+3. **Server-side ingestion** — write a small script that scans `/data1/wearables/*/<YYYY-MM-DD>/` day folders for `hr_*_*.json` / `sensors_*_*.json` files and inserts into SQLite. Every timestamp in the files is a readable string in the format `MMM d yyyy, h:mm:ss a zzz` (US locale, watch-local timezone — handle both `PDT` and `PST`); there are no epoch values and no `watch_serial` in the uploads. The script parses `time` / `received_at` / `uploaded_at` back into integer epoch-ms columns for indexing. Suggested schema:
    ```sql
    CREATE TABLE hr_samples (
        id INTEGER PRIMARY KEY AUTOINCREMENT,

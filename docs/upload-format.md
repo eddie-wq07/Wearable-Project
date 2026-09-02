@@ -31,15 +31,19 @@ adb -s <watch> shell am broadcast -a com.example.testwatch.SET_PARTICIPANT_ID \
 
 ## File naming
 
-Uploads land in `/data1/wearables/<participantId>/`:
+Uploads land in one folder per upload day, files named by time inside it:
 
-- `sensors_<participantId>_<YYYY-MM-DD_HHMMSS>_<NNN>.json` — all sensor batches (continuous + on-demand)
-- `hr_<participantId>_<YYYY-MM-DD_HHMMSS>_<NNN>.json` — heart-rate samples
+```
+/data1/wearables/<participantId>/<YYYY-MM-DD>/
+├── hr_<participantId>_<HHMMSS>_<NNN>.json        heart-rate samples
+└── sensors_<participantId>_<HHMMSS>_<NNN>.json   all sensor batches (continuous + on-demand)
+```
 
-Example: `sensors_1A_2026-09-01_232000_002.json` (upload time, watch-local, filesystem-safe
-and sorts chronologically). `NNN` is a zero-padded slice counter starting at `001`,
-shared across both file kinds within one drain pass — same-second slices must not
-collide (overwrite each other) on the server.
+Example: `/data1/wearables/1A/2026-09-01/sensors_1A_232000_002.json` (upload time,
+watch-local, filesystem-safe, sorts chronologically). `NNN` is a zero-padded slice
+counter starting at `001`, shared across both file kinds within one drain pass —
+same-second slices must not collide (overwrite each other) on the server. A drain pass
+that straddles midnight rolls into the next day's folder.
 
 ## Sensors file
 
