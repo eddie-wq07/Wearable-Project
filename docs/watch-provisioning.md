@@ -5,6 +5,14 @@ operational, kiosk-locked study watch. Repeat identically for every watch. Roles
 = physical steps on phone/watch; **[mac]** = ADB/server steps run from the provisioning
 machine.
 
+> **Automated path:** everything in Phases 2–7 below (after the physical prep) is one
+> command: `./setup.sh <PARTICIPANT_ID>` from the repo root, or `watch-setup <ID>`
+> globally (e.g. `watch-setup 2A`, add `--pair` for a brand-new watch). It connects,
+> verifies no accounts, installs, grants, sets device owner, sets the ID, registers the
+> SSH key on MISR, forces the WiFi unmetered, arms the kiosk, and verifies tracking +
+> lock task — failing loudly with the fix if any step is off. The phases below remain
+> as the manual reference / troubleshooting guide.
+
 Prereqs (once per session): `watch-debug.apk` built (`./gradlew :watch:assembleDebug`),
 server port reachable (`nc -z misr.sauder.ubc.ca 16800`), phone with Galaxy Wearable on
 the lab WiFi.
