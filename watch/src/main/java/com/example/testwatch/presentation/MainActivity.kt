@@ -30,10 +30,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.MaterialTheme
+import androidx.wear.compose.material3.OutlinedButton
 import androidx.wear.compose.material3.ScreenScaffold
 import androidx.wear.compose.material3.Text
 import com.example.testwatch.R
@@ -165,6 +167,13 @@ private fun MeasuringNotice(prompt: String) {
             color = TextSecondary,
             textAlign = TextAlign.Center,
         )
+        val context = LocalContext.current
+        OutlinedButton(
+            onClick = { OnDemandController.cancelRound(context) },
+            modifier = Modifier.padding(top = 8.dp),
+        ) {
+            Text("Cancel")
+        }
     }
 }
 

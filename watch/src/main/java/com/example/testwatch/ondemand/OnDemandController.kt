@@ -34,6 +34,15 @@ object OnDemandController {
         )
     }
 
+    /** Aborts an accidentally started round; SensorEngine's cleanup reports it
+     *  back through onRoundFinished(false), which re-enables the Measure button. */
+    fun cancelRound(context: Context) {
+        context.startForegroundService(
+            Intent(context, HrTrackingService::class.java)
+                .setAction(HrTrackingService.ACTION_CANCEL_ROUND),
+        )
+    }
+
     /** completed=false (cancelled round, engine not connected) keeps today "not done". */
     fun onRoundFinished(context: Context, completed: Boolean) {
         inProgress.value = false

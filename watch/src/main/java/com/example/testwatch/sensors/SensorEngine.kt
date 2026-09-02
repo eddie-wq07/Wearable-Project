@@ -49,6 +49,12 @@ class SensorEngine(
         }
     }
 
+    /** Participant-initiated abort. The round's finally blocks stop the active session,
+     *  resume PPG, clear the prompt, and report the round as not completed. */
+    fun cancelRound() {
+        roundJob?.cancel()
+    }
+
     fun stop() {
         roundJob?.cancel()
         continuous.forEach { it.stop() }

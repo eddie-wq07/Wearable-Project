@@ -114,6 +114,9 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
                 }
             }
         }
+        if (intent?.action == ACTION_CANCEL_ROUND) {
+            sensorEngine?.cancelRound()
+        }
         if (intent?.action == ACTION_DRAIN_NOW) {
             // End-of-study offload. The worker is constraint-gated on charger + WiFi,
             // which is the offload procedure anyway; WorkManager holds its own wakelock.
@@ -331,6 +334,7 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
 
     companion object {
         const val ACTION_RUN_ROUND = "com.example.testwatch.RUN_ROUND"
+        const val ACTION_CANCEL_ROUND = "com.example.testwatch.CANCEL_ROUND"
         const val ACTION_DRAIN_NOW = "com.example.testwatch.DRAIN_NOW"
         private const val CHANNEL_ID = "hr_tracking"
         private const val MEASURE_CHANNEL_ID = "measurements"
