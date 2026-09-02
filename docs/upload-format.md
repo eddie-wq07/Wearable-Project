@@ -197,8 +197,9 @@ entry per sensor type:
 - `time` is when the batch/sample was recorded; `received_at` / `uploaded_at` are when
   the upload pass ran ("left the watch at").
 - `is_test` is `true` for pre-study data; flip to `false` for production uploads.
-- Bytes on the server are this structure serialized compact (single line); pretty-print
-  with `jq .` when reading.
+- The consolidated files are pretty-printed for humans: scalar fields at the top, then
+  **one record per line** inside `heart_rate` / `batches` — scannable and greppable.
+  Only the transient `parts/` slices are compact (upload bandwidth).
 - **Implementation status (2026-09-01):** watch code is aligned with this standard —
   `BatchSerializer.kt` emits exactly this format and `UploadWorker.kt` names files as
   above; `handoff.md` §4 matches. The server-side ingest script (parsing the readable

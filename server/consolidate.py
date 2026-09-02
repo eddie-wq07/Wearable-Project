@@ -28,10 +28,27 @@ def load(path):
         return None
 
 
+def pretty(obj):
+    """Researcher-readable JSON: scalars up top, then one record per line inside each
+    list — scannable and greppable without the file exploding into millions of lines."""
+    scalar_parts = []
+    list_parts = []
+    for k, v in obj.items():
+        if isinstance(v, list):
+            if v:
+                body = ",\n".join("    " + json.dumps(r) for r in v)
+                list_parts.append('  %s: [\n%s\n  ]' % (json.dumps(k), body))
+            else:
+                list_parts.append('  %s: []' % json.dumps(k))
+        else:
+            scalar_parts.append('  %s: %s' % (json.dumps(k), json.dumps(v)))
+    return "{\n" + ",\n".join(scalar_parts + list_parts) + "\n}\n"
+
+
 def write_atomic(path, obj):
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
     with os.fdopen(fd, "w") as f:
-        json.dump(obj, f)
+        f.write(pretty(obj))
         f.flush()
         os.fsync(f.fileno())
     os.rename(tmp, path)
