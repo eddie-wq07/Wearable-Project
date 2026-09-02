@@ -70,7 +70,7 @@ gate for the sensor SDK).
 ### Verify
 
 ```bash
-adb shell am broadcast -a com.example.testwatch.KIOSK_STATUS
+adb shell am broadcast -a com.example.testwatch.KIOSK_STATUS -n com.example.testwatch/com.example.testwatch.kiosk.KioskControlReceiver
 adb logcat -d -s KioskControl KioskManager
 ```
 
@@ -96,10 +96,10 @@ set" — the watch is already provisioned (check `KIOSK_STATUS`).
 ### Over ADB
 
 ```bash
-adb shell am broadcast -a com.example.testwatch.KIOSK_EXIT --es passcode 'MIS123!'
+adb shell am broadcast -a com.example.testwatch.KIOSK_EXIT -n com.example.testwatch/com.example.testwatch.kiosk.KioskControlReceiver --es passcode 'MIS123!'
 ```
 
-(Quote the passcode — `!` is a shell history character.) Wrong/missing passcode is rejected
+(Quote the passcode — `!` is a shell history character. The explicit `-n` component is required on all kiosk broadcasts: implicit broadcasts never reach manifest receivers on modern Android.) Wrong/missing passcode is rejected
 and logged. Either exit only **disarms** the kiosk; the app stays device owner, so re-arming
 is instant.
 
@@ -108,7 +108,7 @@ is instant.
 After maintenance, re-enable the kiosk (no passcode needed — arming is always safe):
 
 ```bash
-adb shell am broadcast -a com.example.testwatch.KIOSK_ENABLE
+adb shell am broadcast -a com.example.testwatch.KIOSK_ENABLE -n com.example.testwatch/com.example.testwatch.kiosk.KioskControlReceiver
 ```
 
 Or simply relaunch the app after toggling: the pinned state always follows the kiosk flag on
@@ -120,7 +120,7 @@ To return a watch to normal consumer behavior (lifts all restrictions, restores 
 status bar, drops device-owner status):
 
 ```bash
-adb shell am broadcast -a com.example.testwatch.KIOSK_RELEASE_OWNER --es passcode 'MIS123!'
+adb shell am broadcast -a com.example.testwatch.KIOSK_RELEASE_OWNER -n com.example.testwatch/com.example.testwatch.kiosk.KioskControlReceiver --es passcode 'MIS123!'
 ```
 
 Verify with `KIOSK_STATUS` (`deviceOwner=false`). If the platform refuses the programmatic
