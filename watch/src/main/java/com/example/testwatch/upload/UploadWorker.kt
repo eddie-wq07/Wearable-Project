@@ -97,8 +97,12 @@ class UploadWorker(
         val sensorDao = db.sensorBatchDao()
         var slice = 0
         var lastDayDir: String? = null
+        // Slices land in the day's hidden parts/ staging dir; the server-side consolidator
+        // (server/consolidate.py, cron on MISR) merges them into the two researcher-facing
+        // files — sensors_<pid>_continuous.json and sensors_<pid>_ondemand.json — and
+        // deletes the consumed parts.
         fun ensureDayDir(firstTs: Long): String {
-            val dir = "$remoteDir/${dayOf(firstTs)}"
+            val dir = "$remoteDir/${dayOf(firstTs)}/parts"
             if (dir != lastDayDir) {
                 try { sftp.mkdirs(dir) } catch (t: Throwable) {
                     Log.i(TAG, "mkdirs $dir skipped: ${t.message}")

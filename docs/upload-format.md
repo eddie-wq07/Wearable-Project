@@ -29,26 +29,46 @@ adb -s <watch> shell am broadcast -a com.example.testwatch.SET_PARTICIPANT_ID \
     --es participant_id "1A"
 ```
 
-## File naming
+## Server layout
 
-Data is organized by **when it was recorded, never by when it uploaded**. Each file
-holds a single recording day's rows, lands in that day's folder, and is named by the
-recording time of its first sample:
+Data is organized by **when it was recorded, never by when it uploaded**. Each day
+folder contains exactly **two researcher-facing files**:
 
 ```
 /data1/wearables/<participantId>/<YYYY-MM-DD>/
-├── hr_<participantId>_<HHMMSS>_<NNN>.json        heart-rate samples
-└── sensors_<participantId>_<HHMMSS>_<NNN>.json   all sensor batches (continuous + on-demand)
+├── sensors_<participantId>_continuous.json   hr + ppg + accel + skin_temp, whole day
+└── sensors_<participantId>_ondemand.json     the day's measurement round
 ```
 
-Example: `/data1/wearables/1A/2026-09-01/sensors_1A_102000_002.json` — data recorded
-Sep 1 starting 10:20:00, watch-local, filesystem-safe, sorts chronologically. `NNN` is a
-zero-padded slice counter starting at `001`, shared across both file kinds within one
-drain pass — same-second slices must not collide (overwrite each other) on the server.
+Example: `/data1/wearables/1A/2026-09-01/sensors_1A_continuous.json`.
 
-Upload timing is irrelevant to the layout: a watch that buffers a week and drains in one
-overnight session fans that backlog out into seven day folders, identical to a watch
-that uploaded nightly.
+Consolidated file shapes (batch entries inside `batches` are exactly the per-sensor
+envelope shown below):
+
+```json
+{ "participant_id": "1A", "date": "2026-09-01", "is_test": true,
+  "heart_rate": [ { "time": "Sep 1 2026, 10:20:00 PM PDT", "bpm": 72, "status": 1 } ],
+  "batches": [ /* ppg / accel / skin_temp batch entries */ ] }
+```
+
+```json
+{ "participant_id": "1A", "date": "2026-09-01", "is_test": true,
+  "round_completed": "Sep 1 2026, 10:25:00 PM PDT",
+  "batches": [ /* ecg / spo2 / bia / mf_bia batch entries */ ] }
+```
+
+If a newer on-demand round for the same day reaches the server, it **replaces** the
+`ondemand` file (latest round wins; the watch itself also only ships a day's surviving
+round). The continuous file only ever grows.
+
+**How the files are produced:** the watch must upload in small resumable slices (10-min
+background-worker limit; bounded memory), so it stages them in a transient
+`<day>/parts/` subfolder — `hr_<pid>_<HHMMSS>_<NNN>.json` / `sensors_<pid>_<HHMMSS>_<NNN>.json`,
+named by first-sample recording time plus an anti-collision slice counter.
+`server/consolidate.py` (cron on MISR, every 15 min, log in `~/consolidate.log`) merges
+parts into the two files atomically and deletes them; between a drain and the next cron
+tick you may briefly see a `parts/` folder. A week's backlog draining in one session
+still fans out into one folder per recording day.
 
 ## Sensors file
 
