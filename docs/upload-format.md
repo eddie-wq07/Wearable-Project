@@ -1,8 +1,9 @@
 # Upload file format — project standard
 
 Standard as of 2026-09-01. Every file the watch uploads to the server follows this
-format. Supersedes the earlier shape that carried `timestamp_ms` and `watch_serial`
-(both removed).
+format. Supersedes the earlier shape that carried `timestamp_ms`, `watch_serial`, and
+epoch-millisecond values (all removed) — every timestamp in this format is
+human-readable, in the watch's local timezone.
 
 ## Participant ID scheme
 
@@ -32,8 +33,11 @@ adb -s <watch> shell am broadcast -a com.example.testwatch.SET_PARTICIPANT_ID \
 
 Uploads land in `/data1/wearables/<participantId>/`:
 
-- `sensors_<participantId>_<epoch-ms>.json` — all sensor batches (continuous + on-demand)
-- `hr_<participantId>_<epoch-ms>.json` — heart-rate samples
+- `sensors_<participantId>_<YYYY-MM-DD_HHMMSS>.json` — all sensor batches (continuous + on-demand)
+- `hr_<participantId>_<YYYY-MM-DD_HHMMSS>.json` — heart-rate samples
+
+Example: `sensors_1A_2026-09-01_232000.json` (upload time, watch-local, filesystem-safe
+and sorts chronologically).
 
 ## Sensors file
 
@@ -43,15 +47,14 @@ entry per sensor type:
 
 ```json
 {
-  "uploaded_at": 1756789200000,
-  "uploaded_at_readable": "Sep 1 2026, 11:20:00 PM PDT",
+  "uploaded_at": "Sep 1 2026, 11:20:00 PM PDT",
   "is_test": true,
   "batches": [
     {
       "participant_id": "1A",
       "sensor": "ppg",
       "time": "Sep 1 2026, 10:20:00 PM PDT",
-      "received_at": 1756789200000,
+      "received_at": "Sep 1 2026, 11:20:00 PM PDT",
       "points": [
         { "green": 1834202, "ir": 902114, "red": 771530, "g_st": 0, "i_st": 0, "r_st": 0 },
         { "green": 1834550, "ir": 902377, "red": 771812, "g_st": 0, "i_st": 0, "r_st": 0 }
@@ -61,7 +64,7 @@ entry per sensor type:
       "participant_id": "1A",
       "sensor": "accel",
       "time": "Sep 1 2026, 10:20:00 PM PDT",
-      "received_at": 1756789200000,
+      "received_at": "Sep 1 2026, 11:20:00 PM PDT",
       "points": [
         { "x": 0.012, "y": -9.794, "z": 0.310 },
         { "x": 0.015, "y": -9.801, "z": 0.298 }
@@ -71,7 +74,7 @@ entry per sensor type:
       "participant_id": "1A",
       "sensor": "skin_temp",
       "time": "Sep 1 2026, 10:21:00 PM PDT",
-      "received_at": 1756789200000,
+      "received_at": "Sep 1 2026, 11:20:00 PM PDT",
       "points": [
         { "object_c": 33.1, "ambient_c": 26.4, "status": 0 }
       ]
@@ -80,7 +83,7 @@ entry per sensor type:
       "participant_id": "1A",
       "sensor": "ecg",
       "time": "Sep 1 2026, 10:22:00 PM PDT",
-      "received_at": 1756789200000,
+      "received_at": "Sep 1 2026, 11:20:00 PM PDT",
       "points": [
         { "mv": 0.142, "lead_off": 0, "seq": 1 },
         { "mv": 0.156, "lead_off": 0, "seq": 2 }
@@ -90,7 +93,7 @@ entry per sensor type:
       "participant_id": "1A",
       "sensor": "spo2",
       "time": "Sep 1 2026, 10:23:00 PM PDT",
-      "received_at": 1756789200000,
+      "received_at": "Sep 1 2026, 11:20:00 PM PDT",
       "points": [
         { "spo2": 97, "hr": 71, "status": 2, "accuracy": 1 }
       ]
@@ -99,7 +102,7 @@ entry per sensor type:
       "participant_id": "1A",
       "sensor": "bia",
       "time": "Sep 1 2026, 10:24:00 PM PDT",
-      "received_at": 1756789200000,
+      "received_at": "Sep 1 2026, 11:20:00 PM PDT",
       "points": [
         {
           "status": 0,
@@ -121,7 +124,7 @@ entry per sensor type:
       "participant_id": "1A",
       "sensor": "mf_bia",
       "time": "Sep 1 2026, 10:25:00 PM PDT",
-      "received_at": 1756789200000,
+      "received_at": "Sep 1 2026, 11:20:00 PM PDT",
       "points": [
         {
           "status": 0,
@@ -141,8 +144,7 @@ entry per sensor type:
 
 ```json
 {
-  "uploaded_at": 1756789200000,
-  "uploaded_at_readable": "Sep 1 2026, 11:20:00 PM PDT",
+  "uploaded_at": "Sep 1 2026, 11:20:00 PM PDT",
   "is_test": true,
   "samples": [
     {
@@ -150,7 +152,7 @@ entry per sensor type:
       "time": "Sep 1 2026, 10:20:00 PM PDT",
       "bpm": 72,
       "status": 1,
-      "received_at": 1756789200000
+      "received_at": "Sep 1 2026, 11:20:00 PM PDT"
     }
   ]
 }
@@ -158,10 +160,11 @@ entry per sensor type:
 
 ## Notes
 
-- `time` is the watch-local timezone, **seconds precision** — it is the only per-sample
-  timestamp in this format.
-- `received_at` / `uploaded_at` are epoch milliseconds of the upload pass ("left the
-  watch at"); `uploaded_at_readable` mirrors `uploaded_at`.
+- All timestamps use one format: `MMM d yyyy, h:mm:ss a zzz` (e.g. `Sep 1 2026,
+  11:20:00 PM PDT`), watch-local timezone, **seconds precision**. No epoch values
+  anywhere.
+- `time` is when the batch/sample was recorded; `received_at` / `uploaded_at` are when
+  the upload pass ran ("left the watch at").
 - `is_test` is `true` for pre-study data; flip to `false` for production uploads.
 - Bytes on the server are this structure serialized compact (single line); pretty-print
   with `jq .` when reading.
