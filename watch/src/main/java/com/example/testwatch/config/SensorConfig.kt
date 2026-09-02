@@ -1,17 +1,11 @@
 package com.example.testwatch.config
 
-/** Timing constants for on-demand sensor rounds (interval, first-round delay, timeout) and the
- *  dummy TrackerUserProfile BIA/mf_bia measurements require. */
+/** Per-measurement timeout for on-demand sensors and the dummy TrackerUserProfile BIA/mf_bia
+ *  measurements require. Round scheduling lives in the ondemand package (participant-triggered). */
 
 import com.samsung.android.service.health.tracking.data.TrackerUserProfile
 
 object SensorConfig {
-    /** How often the on-demand measurement round runs. */
-    const val ON_DEMAND_INTERVAL_MIN = 5L
-
-    /** Delay before the first round after startup (so it's quick to observe). */
-    const val FIRST_ROUND_DELAY_MIN = 1L
-
     /** Max seconds each on-demand tracker collects before the queue moves on. */
     const val ON_DEMAND_TIMEOUT_SEC = 45L
 

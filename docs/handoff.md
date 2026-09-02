@@ -35,7 +35,7 @@ phone relay; rationale in §10).
 ┌──────────────── Galaxy Watch 8 ────────────────┐         ┌────────── MISR server ──────────┐
 │ Samsung SDK: HR 1Hz + SensorEngine             │         │ /data1/wearables/<participant>/ │
 │  (ppg 25Hz, accel 25Hz, skin_temp,             │         │   hr_*.json                     │
-│   on-demand rounds every 5 min)                │         │   sensors_*.json                │
+│   daily on-demand round via Measure button)    │         │   sensors_*.json                │
 │   │                                            │         │                                 │
 │ HrTrackingService (foreground)                 │         │ (lab ingestion reads files      │
 │   │ writes each sample/batch                   │  SFTP   │  into SQLite)                   │
@@ -75,7 +75,7 @@ java/com/example/testwatch/
 │   └── OffBodyStatus.java
 ├── config/
 │   ├── StorageConfig.kt         Storage budget: thresholds + the data-rate math (2026-08-26)
-│   ├── SensorConfig.kt          On-demand round timings + BIA user profile
+│   ├── SensorConfig.kt          On-demand per-measurement timeout + BIA user profile
 │   └── ServerConfig.kt          Host, shared account, pinned host keys, Keystore alias (no secrets)
 ├── data/
 │   ├── HrSample.kt              Room entity (id, ts, bpm, status, synced)
@@ -84,8 +84,12 @@ java/com/example/testwatch/
 │   └── ParticipantStore.kt      SharedPrefs wrapper for participant_id
 ├── tracking/
 │   ├── HrTrackingService.kt     Foreground service: SDK + Room writes + storage monitor
-│   ├── MeasureAlarmReceiver.kt  Doze-proof alarm tick for on-demand rounds
 │   └── TrackingState.kt         MutableStateFlow snapshot for the UI (+ buffer telemetry)
+├── ondemand/                    ← participant-triggered daily measurement round (2026-09-01)
+│   ├── OnDemandController.kt    inProgress/lastCompletedAt state, prefs, startRound()
+│   ├── OnDemandScreen.kt        Measure button + done-today status (item in MainActivity)
+│   ├── DailyReminderReceiver.kt Daily nudge if today's round isn't done (never auto-runs)
+│   └── OnDemandConfig.kt        REMINDER_HOUR
 ├── sync/
 │   └── BatchSerializer.kt       Upload JSON payload building (same shape the phone relay used)
 ├── upload/
@@ -109,15 +113,20 @@ passes on storage thresholds or a manual trigger. Thresholds live in
 |---|---|
 | Galaxy Watch 8 flash | 32 GB advertised, **~18 GB actually usable** after Wear OS + preloads |
 | RAM | 2 GB — irrelevant to buffering; every sample lands in SQLite via Room |
-| Write rate, current sensor set | **~320 MB/day** (ppg 25 Hz ≈ 194 MB + accel 25 Hz ≈ 93 MB + HR 1 Hz ≈ 3.5 MB + skin_temp ≈ 0.1 MB + on-demand rounds ≈ 2 MB, ×1.15 SQLite overhead) |
+| Write rate, current sensor set | **~320 MB/day** (ppg 25 Hz ≈ 194 MB + accel 25 Hz ≈ 93 MB + HR 1 Hz ≈ 3.5 MB + skin_temp ≈ 0.1 MB + one daily on-demand round ≈ 0.01 MB, ×1.15 SQLite overhead) |
 | Time to fill usable storage | **~56 days** |
 | One 2–4-week study window | **4.5–9 GB** — fits comfortably below the high-water mark |
 
 **Continuous sensors buffered and uploaded** (the `SENSORS` registry in
 `SensorSpec.kt`): `ppg` (green/IR/red + statuses, 25 Hz), `accel` (x/y/z,
 25 Hz), `skin_temp` (~1/min), plus the legacy 1 Hz `hr` path (`hr_samples`
-table). On-demand rounds (`spo2`, `bia`, `mf_bia`, `ecg`) every 5 min ride the
-same buffer.
+table). On-demand rounds (`spo2`, `bia`, `mf_bia`, `ecg`) ride the same
+buffer. Since 2026-09-01 they are **participant-triggered, once a day**: the
+watch app's Measure button runs the full 4-sensor round (~3 min); a reminder
+notification fires at 10:00 if today's round isn't done, but never starts a
+round by itself. A same-day re-run **replaces** the earlier round (today's
+on-demand rows are deleted locally before the new round; if the earlier round
+was already uploaded, ingest takes the newest file for the day).
 
 **Timing / trigger logic:**
 

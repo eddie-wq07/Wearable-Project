@@ -26,6 +26,11 @@ class SensorSpec(
     val extract: (DataPoint) -> Map<String, Number>,
 )
 
+/** Wire/DB keys of the on-demand sensors, for the daily round's replace-semantics delete. */
+val ON_DEMAND_SENSOR_IDS: List<String> by lazy {
+    SENSORS.filter { it.mode == SensorMode.ON_DEMAND }.map { it.id }
+}
+
 val SENSORS = listOf(
     SensorSpec("ppg", HealthTrackerType.PPG_CONTINUOUS, SensorMode.CONTINUOUS,
         ppgTypes = setOf(PpgType.GREEN, PpgType.IR, PpgType.RED)) { dp ->

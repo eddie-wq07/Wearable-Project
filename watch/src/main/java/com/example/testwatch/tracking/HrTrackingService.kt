@@ -18,11 +18,11 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.testwatch.R
-import com.example.testwatch.config.SensorConfig
 import com.example.testwatch.config.StorageConfig
 import com.example.testwatch.data.HrDatabase
 import com.example.testwatch.data.HrSample
 import com.example.testwatch.data.SensorBatch
+import com.example.testwatch.ondemand.OnDemandController
 import com.example.testwatch.sensors.ConnectionManager
 import com.example.testwatch.sensors.ConnectionObserver
 import com.example.testwatch.sensors.HeartRateListener
@@ -58,6 +58,7 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
 
     override fun onCreate() {
         super.onCreate()
+        OnDemandController.init(this)
         trackerDataSubject = TrackerDataSubject().also { it.addObserver(this) }
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         offBodySensor = sensorManager?.getDefaultSensor(Sensor.TYPE_LOW_LATENCY_OFFBODY_DETECT)
@@ -89,12 +90,28 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
         // Standing upload schedule: fires whenever the watch is charging on WiFi.
         UploadWorker.schedulePeriodic(this)
         if (intent?.action == ACTION_RUN_ROUND) {
-            // Hold the CPU for the ~3-minute round; times out on its own.
-            (getSystemService(POWER_SERVICE) as android.os.PowerManager)
-                .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "testwatch:round")
-                .acquire(4 * 60_000L)
-            sensorEngine?.runRoundNow()
-            MeasureAlarmReceiver.scheduleNext(this, SensorConfig.ON_DEMAND_INTERVAL_MIN)
+            val engine = sensorEngine
+            if (engine == null) {
+                // SDK not connected yet; report failure so the Measure button re-enables.
+                OnDemandController.onRoundFinished(this, false)
+            } else {
+                // Hold the CPU for the ~3-minute round; times out on its own.
+                (getSystemService(POWER_SERVICE) as android.os.PowerManager)
+                    .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "testwatch:round")
+                    .acquire(4 * 60_000L)
+                scope.launch {
+                    // Re-run replaces today's earlier round before new rows land.
+                    try {
+                        sensorDao.deleteForSensorsSince(
+                            com.example.testwatch.sensors.ON_DEMAND_SENSOR_IDS,
+                            OnDemandController.startOfTodayMs(),
+                        )
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "replace-delete failed", t)
+                    }
+                    engine.runRoundNow()
+                }
+            }
         }
         if (intent?.action == ACTION_DRAIN_NOW) {
             // End-of-study offload. The worker is constraint-gated on charger + WiFi,
@@ -149,8 +166,10 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
                     }
                 },
                 prompt = ::showMeasurementPrompt,
+                onRoundFinished = { completed ->
+                    OnDemandController.onRoundFinished(applicationContext, completed)
+                },
             ).also { it.start() }
-            MeasureAlarmReceiver.scheduleNext(this, SensorConfig.FIRST_ROUND_DELAY_MIN)
         } catch (t: Throwable) {
             Log.e(TAG, "sensor engine start failed", t)
         }

@@ -27,6 +27,13 @@ interface SensorBatchDao {
     @Query("SELECT COUNT(*) FROM sensor_batches WHERE synced = 0")
     suspend fun unsyncedCount(): Int
 
+    // Replace semantics for the daily round: a re-run deletes today's earlier
+    // on-demand rows, synced or not, so only the latest round remains locally.
+    // If the earlier round was already uploaded, the server keeps both files
+    // and ingest takes the newest for the day.
+    @Query("DELETE FROM sensor_batches WHERE sensor IN (:sensors) AND timestampMs >= :sinceMs")
+    suspend fun deleteForSensorsSince(sensors: List<String>, sinceMs: Long): Int
+
     // Emergency back-pressure only: creates a data gap. Callers must report the
     // returned count via TrackingState.droppedRows, never swallow it.
     @Query(

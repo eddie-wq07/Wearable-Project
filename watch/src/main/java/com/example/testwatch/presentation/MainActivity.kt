@@ -35,6 +35,8 @@ import androidx.wear.compose.material3.Text
 import com.example.testwatch.R
 import com.example.testwatch.kiosk.KioskGate
 import com.example.testwatch.kiosk.KioskManager
+import com.example.testwatch.ondemand.OnDemandController
+import com.example.testwatch.ondemand.OnDemandSection
 import com.example.testwatch.presentation.theme.TestWatchTheme
 import com.example.testwatch.tracking.HrTrackingService
 import com.example.testwatch.tracking.TrackingState
@@ -43,6 +45,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        OnDemandController.init(this)
 
         val permissions = buildList {
             add(Manifest.permission.BODY_SENSORS)
@@ -173,6 +176,7 @@ fun WearApp() {
                             MetricCell("SPO2", if (spo2 > 0) "$spo2%" else "--", DotSpo2)
                         }
                     }
+                    item { OnDemandSection() }
                     item {
                         Row(
                             modifier = Modifier

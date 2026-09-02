@@ -19,6 +19,9 @@ class SensorEngine(
     private val scope: CoroutineScope,
     private val store: (spec: SensorSpec, firstTs: Long, pointsJson: String) -> Unit,
     private val prompt: (text: String?) -> Unit,
+    /** completed=true only when the round visited every sensor (timeouts included);
+     *  false on cancellation, so a killed round never counts as today's measurement. */
+    private val onRoundFinished: (completed: Boolean) -> Unit,
 ) {
     private val supported = service.getTrackingCapability().supportHealthTrackerTypes.toSet()
     private val continuous = mutableListOf<TrackerSession>()
@@ -74,6 +77,7 @@ class SensorEngine(
     private suspend fun runOnDemandRound() {
         // ECG/BIA use the same optical/electrode stack as PPG; pause it for the round.
         continuous.filter { it.spec.id == "ppg" }.forEach { it.stop() }
+        var completed = false
         try {
             for (spec in SENSORS.filter { it.mode == SensorMode.ON_DEMAND && it.trackerType in supported }) {
                 prompt(spec.prompt)
@@ -90,9 +94,11 @@ class SensorEngine(
                     measurementDone = null
                 }
             }
+            completed = true
         } finally {
             prompt(null)
             continuous.filter { it.spec.id == "ppg" }.forEach { it.start() }
+            onRoundFinished(completed)
         }
     }
 
