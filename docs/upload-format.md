@@ -31,7 +31,9 @@ adb -s <watch> shell am broadcast -a com.example.testwatch.SET_PARTICIPANT_ID \
 
 ## File naming
 
-Uploads land in one folder per upload day, files named by time inside it:
+Data is organized by **when it was recorded, never by when it uploaded**. Each file
+holds a single recording day's rows, lands in that day's folder, and is named by the
+recording time of its first sample:
 
 ```
 /data1/wearables/<participantId>/<YYYY-MM-DD>/
@@ -39,11 +41,14 @@ Uploads land in one folder per upload day, files named by time inside it:
 └── sensors_<participantId>_<HHMMSS>_<NNN>.json   all sensor batches (continuous + on-demand)
 ```
 
-Example: `/data1/wearables/1A/2026-09-01/sensors_1A_232000_002.json` (upload time,
-watch-local, filesystem-safe, sorts chronologically). `NNN` is a zero-padded slice
-counter starting at `001`, shared across both file kinds within one drain pass —
-same-second slices must not collide (overwrite each other) on the server. A drain pass
-that straddles midnight rolls into the next day's folder.
+Example: `/data1/wearables/1A/2026-09-01/sensors_1A_102000_002.json` — data recorded
+Sep 1 starting 10:20:00, watch-local, filesystem-safe, sorts chronologically. `NNN` is a
+zero-padded slice counter starting at `001`, shared across both file kinds within one
+drain pass — same-second slices must not collide (overwrite each other) on the server.
+
+Upload timing is irrelevant to the layout: a watch that buffers a week and drains in one
+overnight session fans that backlog out into seven day folders, identical to a watch
+that uploaded nightly.
 
 ## Sensors file
 

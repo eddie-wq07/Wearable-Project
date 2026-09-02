@@ -86,18 +86,19 @@ class UploadWorker(
      *  survives interruption (JobScheduler stops long-running workers around the 10-minute
      *  mark; the next constrained window simply resumes where this one stopped).
      *
-     *  Layout follows docs/upload-format.md: one folder per upload day, files named by
-     *  watch-local time inside it — `<remoteDir>/<yyyy-MM-dd>/<kind>_<participantId>_<HHmmss>_<NNN>.json`
-     *  with a per-drain-pass slice counter shared across both file kinds, so same-second
-     *  slices never overwrite each other on the server. A pass that straddles midnight
-     *  rolls into the next day's folder. */
+     *  Layout follows docs/upload-format.md and is keyed to when the data was RECORDED,
+     *  not when it uploads: each file holds rows from a single recording day, lands in
+     *  `<remoteDir>/<yyyy-MM-dd>/` for that day, and is named by the first row's recording
+     *  time — `<kind>_<participantId>_<HHmmss>_<NNN>.json`, with a per-drain-pass slice
+     *  counter shared across both file kinds so same-second slices never overwrite each
+     *  other. A multi-day backlog draining in one pass fans out into one folder per day. */
     private suspend fun drain(sftp: SFTPClient, remoteDir: String, participantId: String) {
         val dao = db.hrDao()
         val sensorDao = db.sensorBatchDao()
         var slice = 0
         var lastDayDir: String? = null
-        fun ensureDayDir(): String {
-            val dir = "$remoteDir/${dayStamp()}"
+        fun ensureDayDir(firstTs: Long): String {
+            val dir = "$remoteDir/${dayOf(firstTs)}"
             if (dir != lastDayDir) {
                 try { sftp.mkdirs(dir) } catch (t: Throwable) {
                     Log.i(TAG, "mkdirs $dir skipped: ${t.message}")
@@ -107,30 +108,40 @@ class UploadWorker(
             return dir
         }
         while (!isStopped) {
-            val hrSlice = dao.unsynced(HR_SLICE_ROWS)
-            val sensorSlice = sensorSlice(sensorDao.unsynced(SENSOR_SLICE_ROWS))
+            val hrSlice = firstDay(dao.unsynced(HR_SLICE_ROWS)) { it.timestampMs }
+            val sensorSlice = sensorSlice(firstDay(sensorDao.unsynced(SENSOR_SLICE_ROWS)) { it.timestampMs })
             if (hrSlice.isEmpty() && sensorSlice.isEmpty()) return
 
             if (hrSlice.isNotEmpty()) {
+                val firstTs = hrSlice.first().timestampMs
                 val body = BatchSerializer.buildHrPayload(participantId, hrSlice)
-                put(sftp, "${ensureDayDir()}/hr_${participantId}_${timeStamp()}_${pad(++slice)}.json", body)
+                put(sftp, "${ensureDayDir(firstTs)}/hr_${participantId}_${timeOf(firstTs)}_${pad(++slice)}.json", body)
                 dao.markSynced(hrSlice.map { it.id })
                 dao.pruneSynced(hrSlice.last().id - KEEP_RECENT_SYNCED)
             }
             if (sensorSlice.isNotEmpty()) {
+                val firstTs = sensorSlice.first().timestampMs
                 val body = BatchSerializer.buildSensorPayload(participantId, sensorSlice)
-                put(sftp, "${ensureDayDir()}/sensors_${participantId}_${timeStamp()}_${pad(++slice)}.json", body)
+                put(sftp, "${ensureDayDir(firstTs)}/sensors_${participantId}_${timeOf(firstTs)}_${pad(++slice)}.json", body)
                 sensorDao.markSynced(sensorSlice.map { it.id })
                 sensorDao.pruneSynced(sensorSlice.last().id - KEEP_RECENT_SYNCED)
             }
         }
     }
 
-    // Watch-local upload-time stamps (filesystem-safe, sort chronologically): day folder + file time.
+    /** Head-of-backlog rows sharing the first row's recording day, so every upload file
+     *  (and therefore its folder) is single-day. */
+    private fun <T> firstDay(rows: List<T>, ts: (T) -> Long): List<T> {
+        if (rows.isEmpty()) return rows
+        val day = dayOf(ts(rows.first()))
+        return rows.takeWhile { dayOf(ts(it)) == day }
+    }
+
+    // Watch-local recording-time stamps (filesystem-safe, sort chronologically): day folder + file time.
     private val dayStampFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
     private val timeStampFormat = java.text.SimpleDateFormat("HHmmss", java.util.Locale.US)
-    private fun dayStamp(): String = synchronized(dayStampFormat) { dayStampFormat.format(java.util.Date()) }
-    private fun timeStamp(): String = synchronized(timeStampFormat) { timeStampFormat.format(java.util.Date()) }
+    private fun dayOf(ms: Long): String = synchronized(dayStampFormat) { dayStampFormat.format(java.util.Date(ms)) }
+    private fun timeOf(ms: Long): String = synchronized(timeStampFormat) { timeStampFormat.format(java.util.Date(ms)) }
     private fun pad(n: Int): String = n.toString().padStart(3, '0')
 
     /** Caps a sensor slice by accumulated JSON bytes so one upload file stays bounded. */
