@@ -33,11 +33,13 @@ adb -s <watch> shell am broadcast -a com.example.testwatch.SET_PARTICIPANT_ID \
 
 Uploads land in `/data1/wearables/<participantId>/`:
 
-- `sensors_<participantId>_<YYYY-MM-DD_HHMMSS>.json` — all sensor batches (continuous + on-demand)
-- `hr_<participantId>_<YYYY-MM-DD_HHMMSS>.json` — heart-rate samples
+- `sensors_<participantId>_<YYYY-MM-DD_HHMMSS>_<NNN>.json` — all sensor batches (continuous + on-demand)
+- `hr_<participantId>_<YYYY-MM-DD_HHMMSS>_<NNN>.json` — heart-rate samples
 
-Example: `sensors_1A_2026-09-01_232000.json` (upload time, watch-local, filesystem-safe
-and sorts chronologically).
+Example: `sensors_1A_2026-09-01_232000_002.json` (upload time, watch-local, filesystem-safe
+and sorts chronologically). `NNN` is a zero-padded slice counter starting at `001`,
+shared across both file kinds within one drain pass — same-second slices must not
+collide (overwrite each other) on the server.
 
 ## Sensors file
 
@@ -168,7 +170,7 @@ entry per sensor type:
 - `is_test` is `true` for pre-study data; flip to `false` for production uploads.
 - Bytes on the server are this structure serialized compact (single line); pretty-print
   with `jq .` when reading.
-- **Implementation status (2026-09-01):** `BatchSerializer.kt` still emits the old
-  fields (`watch_serial`, `timestamp_ms`) and the suggested ingest schema in
-  `handoff.md` §4 still keys off `timestamp_ms`. Both need updating to match this
-  standard before study launch.
+- **Implementation status (2026-09-01):** watch code is aligned with this standard —
+  `BatchSerializer.kt` emits exactly this format and `UploadWorker.kt` names files as
+  above; `handoff.md` §4 matches. The server-side ingest script (parsing the readable
+  timestamps back to epoch-ms) is still to be written.
