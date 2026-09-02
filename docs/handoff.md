@@ -123,7 +123,7 @@ same buffer.
 
 | Trigger | Condition | Behavior |
 |---|---|---|
-| Standing schedule | **charging + unmetered WiFi** (hourly WorkManager periodic; fires when constraints are met) | Upload whatever is buffered, then resume storing |
+| Standing schedule | **charging + unmetered WiFi** (daily WorkManager periodic; at most one pass per 24 h window, fired when constraints are met) | Upload whatever is buffered, then resume storing |
 | High water | unsynced bytes ≥ **12 GB** (~37 days of data; `syncLoop` checks every 5 min) | Ask for an immediate upload pass (still gated on charger+WiFi) |
 | Free-space floor | device free < **2 GB** | Same |
 | Emergency | device free < **1 GB** | Drop oldest unsynced rows (20 k/table per pass), counted in `TrackingState.droppedRows` — **nonzero means a data gap; never silent** |
@@ -159,7 +159,7 @@ fits the budget with a wide margin either way.
 - [x] Samsung Health Tracking Service connects (status 1 = valid HR).
 - [x] **Continuous background tracking** via `HrTrackingService` (foreground service, type `health`). No Start/Stop UI — opens straight to live BPM display.
 - [x] HR samples written to Room (`hr.db`) on every callback.
-- [x] **Store-and-forward** (2026-08-26): buffers locally; uploads at 12 GB high-water / 2 GB free floor / manual `DRAIN_NOW` — and, since 2026-08-29, on the standing charge+WiFi schedule.
+- [x] **Store-and-forward** (2026-08-26): buffers locally; uploads at 12 GB high-water / 2 GB free floor / manual `DRAIN_NOW` — and, since 2026-08-29, on the standing daily charge+WiFi schedule.
 - [x] **Direct SFTP upload** (2026-08-29, compiles; on-device verification below): watch uploads to `/data1/wearables/<participantId>/` with its own Keystore key and pinned host keys. Phone companion deleted the same day (Data Layer round-trip and phone-relay SFTP had been verified 2026-07-30 before removal).
 - [x] Kiosk mode removed (2026-08-27); watch `BootReceiver` now restarts the tracking service after reboot instead.
 
@@ -193,34 +193,35 @@ fits the budget with a wide margin either way.
    `/data1/wearables/<participantId>/` on first upload (the base dir is group-writable;
    shared-account model per docs/new-arch-build.md — no chroot, watches are not isolated
    from each other).
-3. **Server-side ingestion** — write a small script that scans `/data1/wearables/*/` for `hr_*_*.json` / `sensors_*_*.json` files and inserts into SQLite. Suggested schema:
+3. **Server-side ingestion** — write a small script that scans `/data1/wearables/*/` for `hr_*_*.json` / `sensors_*_*.json` files and inserts into SQLite. Every timestamp in the files is a readable string in the format `MMM d yyyy, h:mm:ss a zzz` (US locale, watch-local timezone — handle both `PDT` and `PST`); there are no epoch values and no `watch_serial` in the uploads. The script parses `time` / `received_at` / `uploaded_at` back into integer epoch-ms columns for indexing. Suggested schema:
    ```sql
    CREATE TABLE hr_samples (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
        participant_id TEXT NOT NULL,
-       timestamp_ms INTEGER NOT NULL,
+       time_ms INTEGER NOT NULL,        -- parsed from the readable `time` string
        bpm INTEGER NOT NULL,
        status INTEGER NOT NULL,
-       received_at INTEGER NOT NULL,
-       ingested_at INTEGER NOT NULL
+       received_at_ms INTEGER NOT NULL, -- parsed from `received_at`
+       uploaded_at_ms INTEGER NOT NULL, -- parsed from the file-level `uploaded_at`
+       ingested_at_ms INTEGER NOT NULL
    );
-   CREATE INDEX idx_pid_ts ON hr_samples (participant_id, timestamp_ms);
+   CREATE INDEX idx_pid_ts ON hr_samples (participant_id, time_ms);
    ```
-   File format (each upload is a single JSON file):
+   HR file format (each upload is a single JSON file; full spec including the sensors file is in `docs/upload-format.md`):
    ```json
    {
-     "watch_serial": "RXYZ123",
-     "uploaded_at": 1717980000000,
+     "uploaded_at": "Sep 1 2026, 11:20:00 PM PDT",
+     "is_test": true,
      "samples": [
-       { "participant_id": "P042", "timestamp_ms": 1717979700123, "bpm": 72, "status": 1, "received_at": 1717979750000 }
+       { "participant_id": "1A", "time": "Sep 1 2026, 10:20:00 PM PDT", "bpm": 72, "status": 1, "received_at": "Sep 1 2026, 11:20:00 PM PDT" }
      ]
    }
    ```
-4. **Participant ID** — auto-generated on first launch as `P-<8-char UUID slice>` and persisted in SharedPreferences. To override per watch (e.g. assign a study code):
+4. **Participant ID** — auto-generated on first launch as `P-<8-char UUID slice>` and persisted in SharedPreferences. Override per watch with the study ID (`<watch number><cycle letter>`, e.g. `1A` = watch 1, first cycle — scheme in `docs/upload-format.md`):
    ```bash
    adb shell am broadcast -a com.example.testwatch.SET_PARTICIPANT_ID \
        -n com.example.testwatch/.admin.SetParticipantIdReceiver \
-       --es participant_id "P042"
+       --es participant_id "1A"
    ```
 
 ---
@@ -269,7 +270,7 @@ adb -s <watch> logcat -s HrTrackingService:V UploadWorker:V | grep -E "SFTP|uplo
 | `UploadWorker.kt` | `MAX_FILE_BYTES` | 4 MB | Sensor-JSON cap per upload file — bounds memory and makes interrupted passes cheap to resume. |
 | `UploadWorker.kt` | `KEEP_RECENT_SYNCED` | 1000 rows | Keep the last N synced rows for debugging before pruning. |
 | `UploadWorker.kt` | `MAX_RETRIES` | 10 | Retries with exponential backoff (WorkManager default). |
-| `UploadWorker.kt` | periodic interval | 1 h | Standing charge+WiFi schedule; constraints do the real gating. |
+| `UploadWorker.kt` | periodic interval | 24 h | Standing charge+WiFi schedule — at most one upload pass a day; constraints do the real gating. |
 
 ---
 
@@ -306,7 +307,7 @@ Per-watch step during provisioning until distribution partner approval lands.
 The sensor stack stops *delivering* datapoints ~30–90 s after the screen sleeps whenever our app is not the top activity (SysUI ambient takes over on doze). **No data is lost** — the sensor keeps sampling at ~1 Hz into a hardware buffer and flushes the whole backlog in one burst when the app returns to the foreground (verified: 226-sample burst after a 227 s doze, 182 after 182 s). Because bursts arrive minutes late, samples are stamped with the SDK `DataPoint.getTimestamp()` (fix in `HeartRateListener`/`HrTrackingService`, 2026-07-30), **not** arrival time. Buffer depth beyond ~4 min doze is unverified — soak-test overnight before the study.
 
 ### Watch clock drift (root cause of "all zeros + June timestamps", 2026-07-30)
-With Bluetooth off, the watch never synced time and drifted 7 weeks stale, mislabeling every sample. `auto_time=1` is now set; provisioning must verify the clock is correct. Now that the watch runs standalone (no paired phone as time source), the clock depends on network time over WiFi — a watch that hits its nightly charge+WiFi upload window also gets time sync there; a WiFi-less watch has **no time source all study**, so verify drift at the end-of-study offload. Server ingestion should sanity-check `timestamp_ms` against the upload time and flag watches whose clock has drifted.
+With Bluetooth off, the watch never synced time and drifted 7 weeks stale, mislabeling every sample. `auto_time=1` is now set; provisioning must verify the clock is correct. Now that the watch runs standalone (no paired phone as time source), the clock depends on network time over WiFi — a watch that hits its nightly charge+WiFi upload window also gets time sync there; a WiFi-less watch has **no time source all study**, so verify drift at the end-of-study offload. Server ingestion should sanity-check the parsed `time` against the upload time and flag watches whose clock has drifted.
 
 ### Dev-session buzzing
 The watch buzzes on the system "Wireless debugging" notification every time the flaky ADB-WiFi link reconnects. Harmless, dev-only; toggle Wireless debugging off after each session.
@@ -344,7 +345,7 @@ adb -s <watch> shell pm grant com.example.testwatch android.permission.BODY_SENS
 adb -s <watch> shell pm grant com.example.testwatch android.permission.health.READ_HEART_RATE
 adb -s <watch> shell am broadcast -a com.example.testwatch.SET_PARTICIPANT_ID \
     -n com.example.testwatch/.admin.SetParticipantIdReceiver \
-    --es participant_id "P042"
+    --es participant_id "1A"
 adb -s <watch> shell am start -n com.example.testwatch/.presentation.MainActivity
 # Enable Samsung Health dev mode (manual step on watch — see §7).
 ```
