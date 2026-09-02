@@ -4,12 +4,15 @@
 Watches upload small resumable slices into /data1/wearables/<pid>/<YYYY-MM-DD>/parts/.
 This script (cron, every 15 min on MISR) folds them into:
 
-    sensors_<pid>_continuous.json   hr + ppg + accel + skin_temp for the whole day
-    sensors_<pid>_ondemand.json     the day's measurement round (a newer round replaces it)
+    sensors_<pid>_continuous.json   heart_rate / ppg / accel / skin_temp sections
+    sensors_<pid>_ondemand.json     ecg / spo2 / bia / mf_bia sections (newest round wins)
 
 and deletes the consumed parts, so a day folder normally shows just the two files.
-Writes are atomic (tmp + rename); a part that fails to parse is an in-flight upload and
-is left for the next run.
+
+File format is built for scrolling humans: one section per sensor, one reading per
+line, identical keys on every line of a section. The SDK's raw epoch `ts` field is
+dropped; each reading carries its batch's human-readable `time`. Writes are atomic
+(tmp + rename); a part that fails to parse is an in-flight upload, left for next run.
 """
 import glob
 import json
@@ -17,7 +20,8 @@ import os
 import tempfile
 
 BASE = "/data1/wearables"
-CONTINUOUS_SENSORS = {"ppg", "accel", "skin_temp"}
+CONTINUOUS_SENSORS = ["ppg", "accel", "skin_temp"]
+ONDEMAND_SENSORS = ["ecg", "spo2", "bia", "mf_bia"]
 
 
 def load(path):
@@ -29,8 +33,7 @@ def load(path):
 
 
 def pretty(obj):
-    """Researcher-readable JSON: scalars up top, then one record per line inside each
-    list — scannable and greppable without the file exploding into millions of lines."""
+    """Scalars up top, then one reading per line inside each list section."""
     scalar_parts = []
     list_parts = []
     for k, v in obj.items():
@@ -54,6 +57,39 @@ def write_atomic(path, obj):
     os.rename(tmp, path)
 
 
+def readings(batch):
+    """Flatten a batch into per-reading rows: batch time first, then the values,
+    minus the raw epoch ts."""
+    t = batch.get("time")
+    for p in batch.get("points", []):
+        row = {"time": t}
+        for k, v in p.items():
+            if k != "ts":
+                row[k] = v
+        yield row
+
+
+def ordered(doc, sensor_order):
+    """Stable section order regardless of arrival order."""
+    out = {}
+    for k in ("participant_id", "date", "is_test", "round_completed"):
+        if k in doc:
+            out[k] = doc[k]
+    if "heart_rate" in doc:
+        out["heart_rate"] = doc["heart_rate"]
+    for s in sensor_order:
+        if s in doc:
+            out[s] = doc[s]
+    return out
+
+
+def migrate(doc):
+    """Fold any old-format 'batches' array into per-sensor sections."""
+    for b in doc.pop("batches", []):
+        doc.setdefault(b.get("sensor", "unknown"), []).extend(readings(b))
+    return doc
+
+
 def day_dirs():
     for pid in sorted(os.listdir(BASE)):
         pdir = os.path.join(BASE, pid)
@@ -75,11 +111,11 @@ def consolidate(pid, day, ddir):
 
     cont_path = os.path.join(ddir, "sensors_%s_continuous.json" % pid)
     od_path = os.path.join(ddir, "sensors_%s_ondemand.json" % pid)
-    cont = load(cont_path) or {
-        "participant_id": pid, "date": day, "is_test": True,
-        "heart_rate": [], "batches": [],
-    }
-    new_od_batches = []
+    cont = migrate(load(cont_path) or {
+        "participant_id": pid, "date": day, "is_test": True, "heart_rate": [],
+    })
+    new_od = {}
+    round_time = None
     consumed = []
 
     for p in parts:
@@ -90,23 +126,24 @@ def consolidate(pid, day, ddir):
             cont["heart_rate"].append(
                 {"time": s.get("time"), "bpm": s.get("bpm"), "status": s.get("status")})
         for b in data.get("batches", []):  # sensors_* parts
-            if b.get("sensor") in CONTINUOUS_SENSORS:
-                cont["batches"].append(b)
+            sensor = b.get("sensor", "unknown")
+            if sensor in CONTINUOUS_SENSORS:
+                cont.setdefault(sensor, []).extend(readings(b))
             else:
-                new_od_batches.append(b)
+                new_od.setdefault(sensor, []).extend(readings(b))
+                round_time = b.get("time") or round_time
         consumed.append(p)
 
     if not consumed:
         return
-    write_atomic(cont_path, cont)
-    if new_od_batches:
+    write_atomic(cont_path, ordered(cont, CONTINUOUS_SENSORS))
+    if new_od:
         # A newly arrived round replaces the day's on-demand file: the watch only ever
         # ships the surviving round of a day, so last-arrived == latest.
-        write_atomic(od_path, {
-            "participant_id": pid, "date": day, "is_test": True,
-            "round_completed": new_od_batches[-1].get("time"),
-            "batches": new_od_batches,
-        })
+        od = {"participant_id": pid, "date": day, "is_test": True,
+              "round_completed": round_time}
+        od.update(new_od)
+        write_atomic(od_path, ordered(od, ONDEMAND_SENSORS))
     for p in consumed:
         os.remove(p)
     try:
