@@ -84,10 +84,15 @@ class UploadWorker(
 
     /** Uploads the backlog in bounded slices, marking rows synced after each file so progress
      *  survives interruption (JobScheduler stops long-running workers around the 10-minute
-     *  mark; the next constrained window simply resumes where this one stopped). */
+     *  mark; the next constrained window simply resumes where this one stopped).
+     *
+     *  Filenames follow docs/upload-format.md: `<kind>_<participantId>_<yyyy-MM-dd_HHmmss>_<NNN>.json`
+     *  with a watch-local timestamp and a per-drain-pass slice counter shared across both file
+     *  kinds, so same-second slices never overwrite each other on the server. */
     private suspend fun drain(sftp: SFTPClient, remoteDir: String, participantId: String) {
         val dao = db.hrDao()
         val sensorDao = db.sensorBatchDao()
+        var slice = 0
         while (!isStopped) {
             val hrSlice = dao.unsynced(HR_SLICE_ROWS)
             val sensorSlice = sensorSlice(sensorDao.unsynced(SENSOR_SLICE_ROWS))
@@ -95,18 +100,23 @@ class UploadWorker(
 
             if (hrSlice.isNotEmpty()) {
                 val body = BatchSerializer.buildHrPayload(participantId, hrSlice)
-                put(sftp, "$remoteDir/hr_${participantId}_${System.currentTimeMillis()}.json", body)
+                put(sftp, "$remoteDir/hr_${participantId}_${fileStamp()}_${pad(++slice)}.json", body)
                 dao.markSynced(hrSlice.map { it.id })
                 dao.pruneSynced(hrSlice.last().id - KEEP_RECENT_SYNCED)
             }
             if (sensorSlice.isNotEmpty()) {
                 val body = BatchSerializer.buildSensorPayload(participantId, sensorSlice)
-                put(sftp, "$remoteDir/sensors_${participantId}_${System.currentTimeMillis()}.json", body)
+                put(sftp, "$remoteDir/sensors_${participantId}_${fileStamp()}_${pad(++slice)}.json", body)
                 sensorDao.markSynced(sensorSlice.map { it.id })
                 sensorDao.pruneSynced(sensorSlice.last().id - KEEP_RECENT_SYNCED)
             }
         }
     }
+
+    // Watch-local upload-time stamp for filenames (filesystem-safe, sorts chronologically).
+    private val fileStampFormat = java.text.SimpleDateFormat("yyyy-MM-dd_HHmmss", java.util.Locale.US)
+    private fun fileStamp(): String = synchronized(fileStampFormat) { fileStampFormat.format(java.util.Date()) }
+    private fun pad(n: Int): String = n.toString().padStart(3, '0')
 
     /** Caps a sensor slice by accumulated JSON bytes so one upload file stays bounded. */
     private fun sensorSlice(rows: List<SensorBatch>): List<SensorBatch> {
@@ -180,12 +190,13 @@ class UploadWorker(
             .setRequiresCharging(true)
             .build()
 
-        /** Standing schedule; WorkManager fires it whenever constraints are met. Idempotent. */
+        /** Standing daily schedule: uploads run at most once a day, whenever the charging +
+         *  unmetered-WiFi constraints are met within the 24 h window. Idempotent. */
         fun schedulePeriodic(context: Context) {
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 PERIODIC_NAME,
                 ExistingPeriodicWorkPolicy.KEEP,
-                PeriodicWorkRequestBuilder<UploadWorker>(1, TimeUnit.HOURS)
+                PeriodicWorkRequestBuilder<UploadWorker>(24, TimeUnit.HOURS)
                     .setConstraints(constraints())
                     .build(),
             )
