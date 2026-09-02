@@ -175,13 +175,7 @@ esac
 # ---------- summary ----------
 step "DONE — watch provisioned as $PID"
 cat <<EOF
-    Verify on the watch : status dot + Measure button, home button dead
-    Researcher exit     : 5 quick taps top-center -> passcode (see kiosk/docs)
-    Force an upload now : adb -s $ADDR shell am broadcast -a com.example.testwatch.DRAIN_NOW -n $PKG/.admin.DrainNowReceiver
-    Kiosk status        : adb -s $ADDR shell am broadcast -a com.example.testwatch.KIOSK_STATUS -n $KIOSK_RECEIVER && adb -s $ADDR logcat -d -s KioskControl:V | tail -1
-    Server files        : ssh -p $SSH_PORT $SERVER 'ls -laR /data1/wearables/$PID/'
-    Kiosk remote control: watch-kiosk on|off|status $ADDR   (off = passcode exit, on = re-arm)
-    Wireless debugging  : optional to disable (buzz/battery only — kiosk already blocks
-                          participants from Settings, and ADB needs this Mac's pairing).
-                          Leaving it ON keeps remote maintenance possible mid-study.
+    drain now : adb -s $ADDR shell am broadcast -a com.example.testwatch.DRAIN_NOW -n $PKG/.admin.DrainNowReceiver
+    kiosk     : watch-kiosk on|off|status $ADDR
+    server    : ssh -p $SSH_PORT $SERVER 'ls -laR /data1/wearables/$PID/'
 EOF
