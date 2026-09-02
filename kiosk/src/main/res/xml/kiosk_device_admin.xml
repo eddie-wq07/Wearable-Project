@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Device-admin policy declaration for KioskDeviceAdminReceiver. Device owner mode
+     grants lock-task and user-restriction powers regardless of this list; force-lock
+     is declared for completeness. -->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock />
+    </uses-policies>
+</device-admin>

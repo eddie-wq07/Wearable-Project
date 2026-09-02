@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Merged into the :watch app manifest. Declares the device-admin receiver that makes
+     device-owner kiosk provisioning possible, the passcode-gated ADB control receiver,
+     the on-watch unlock screen, and a (default-disabled) HOME alias used to pin the app
+     as the launcher once the watch is provisioned. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+
+        <!-- Target of `dpm set-device-owner`. Grants no powers by itself; policies are
+             applied by KioskManager once the app is device owner. -->
+        <receiver
+            android:name="com.example.testwatch.kiosk.KioskDeviceAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/kiosk_device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ADB control channel, same pattern as admin/SetParticipantIdReceiver.
+             Every action that weakens the lockdown requires the study passcode. -->
+        <receiver
+            android:name="com.example.testwatch.kiosk.KioskControlReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.example.testwatch.KIOSK_EXIT" />
+                <action android:name="com.example.testwatch.KIOSK_ENABLE" />
+                <action android:name="com.example.testwatch.KIOSK_STATUS" />
+                <action android:name="com.example.testwatch.KIOSK_RELEASE_OWNER" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Passcode entry screen, reachable only through the hidden 5-tap gesture. -->
+        <activity
+            android:name="com.example.testwatch.kiosk.KioskUnlockActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault" />
+
+        <!-- Disabled at build time so dev watches never see a launcher chooser.
+             KioskManager enables it (and sets it persistent-preferred) only when the
+             app is device owner, so HOME always returns to the study app. -->
+        <activity-alias
+            android:name="com.example.testwatch.kiosk.KioskHomeAlias"
+            android:enabled="false"
+            android:exported="true"
+            android:targetActivity="com.example.testwatch.presentation.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
+
+    </application>
+
+</manifest>

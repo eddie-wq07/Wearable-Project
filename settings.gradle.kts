@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Test Watch"
 include(":watch")
+include(":kiosk")

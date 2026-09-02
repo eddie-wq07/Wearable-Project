@@ -33,6 +33,8 @@ import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.ScreenScaffold
 import androidx.wear.compose.material3.Text
 import com.example.testwatch.R
+import com.example.testwatch.kiosk.KioskGate
+import com.example.testwatch.kiosk.KioskManager
 import com.example.testwatch.presentation.theme.TestWatchTheme
 import com.example.testwatch.tracking.HrTrackingService
 import com.example.testwatch.tracking.TrackingState
@@ -59,7 +61,13 @@ class MainActivity : ComponentActivity() {
             startTrackingService()
         }
 
-        setContent { WearApp() }
+        setContent { KioskGate { WearApp() } }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Enters/leaves lock-task mode to match the kiosk flag (see kiosk/docs/kiosk-setup.md).
+        KioskManager.sync(this)
     }
 
     override fun onRequestPermissionsResult(
