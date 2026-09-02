@@ -93,6 +93,14 @@ case "$RESULT" in
     else
       echo "==> DONE — $PUTS file(s) uploaded ($REMAIN)"
     fi
+    # Researchers must only ever see the merged per-day files, never raw parts/
+    # slices — consolidate immediately instead of waiting for the 15-min cron.
+    echo "==> Merging parts into researcher files on the server"
+    if ssh -p "$SSH_PORT" "$SERVER" 'python3 ~/consolidate.py' | sed 's/^/    /'; then
+      ok "day folders show only sensors_<pid>_continuous.json + sensors_<pid>_ondemand.json"
+    else
+      echo "    WARNING: consolidate over SSH failed — the server cron merges within 15 min"
+    fi
     PID_DIR=$(echo "$LOGS" | grep "SFTP put" | tail -1 | sed -n 's|.*SFTP put /data1/wearables/\([^/]*\)/.*|\1|p')
     [ -n "$PID_DIR" ] && echo "    verify: ssh -p $SSH_PORT $SERVER 'ls -laR /data1/wearables/$PID_DIR/'"
     ;;
