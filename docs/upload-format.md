@@ -42,20 +42,45 @@ folder contains exactly **two researcher-facing files**:
 
 Example: `/data1/wearables/1A/2026-09-01/sensors_1A_continuous.json`.
 
-Consolidated file shapes (batch entries inside `batches` are exactly the per-sensor
-envelope shown below):
+Consolidated files have **one section per sensor, one reading per line**, identical
+keys on every line of a section, `time` always first. No epoch values (the SDK's raw
+per-point `ts` is dropped at consolidation):
 
 ```json
-{ "participant_id": "1A", "date": "2026-09-01", "is_test": true,
-  "heart_rate": [ { "time": "Sep 1 2026, 10:20:00 PM PDT", "bpm": 72, "status": 1 } ],
-  "batches": [ /* ppg / accel / skin_temp batch entries */ ] }
+{
+  "participant_id": "1A",
+  "date": "2026-09-01",
+  "is_test": true,
+  "heart_rate": [
+    {"time": "Sep 1 2026, 9:44:01 PM PDT", "bpm": 72, "status": 1}
+  ],
+  "ppg": [
+    {"time": "Sep 1 2026, 9:44:01 PM PDT", "green": 1834202, "ir": 902114, "red": 771530, "g_st": 0, "i_st": 0, "r_st": 0}
+  ],
+  "accel": [
+    {"time": "Sep 1 2026, 9:44:01 PM PDT", "x": 0.012, "y": -9.794, "z": 0.31}
+  ],
+  "skin_temp": [
+    {"time": "Sep 1 2026, 9:45:00 PM PDT", "object_c": 33.1, "ambient_c": 26.4, "status": 0}
+  ]
+}
 ```
 
 ```json
-{ "participant_id": "1A", "date": "2026-09-01", "is_test": true,
-  "round_completed": "Sep 1 2026, 10:25:00 PM PDT",
-  "batches": [ /* ecg / spo2 / bia / mf_bia batch entries */ ] }
+{
+  "participant_id": "1A",
+  "date": "2026-09-01",
+  "is_test": true,
+  "round_completed": "Sep 1 2026, 9:37:53 PM PDT",
+  "ecg": [ {"time": "...", "mv": 0.142, "lead_off": 0, "seq": 1} ],
+  "spo2": [ {"time": "...", "spo2": 97, "hr": 71, "status": 2, "accuracy": 1} ],
+  "bia": [ {"time": "...", "status": 0, "progress": 100, "body_fat_ratio": 21.4 } ],
+  "mf_bia": [ {"time": "...", "status": 0, "progress": 100, "mag_5k": 588.1 } ]
+}
 ```
+
+Readings within a section share their originating batch's `time` (seconds precision;
+sub-second ordering is the line order).
 
 If a newer on-demand round for the same day reaches the server, it **replaces** the
 `ondemand` file (latest round wins; the watch itself also only ships a day's surviving
