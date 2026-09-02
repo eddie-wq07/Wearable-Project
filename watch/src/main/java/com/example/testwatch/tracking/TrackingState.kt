@@ -15,6 +15,10 @@ object TrackingState {
     /** Non-null while an on-demand measurement wants the participant's attention. */
     val currentMeasurement = MutableStateFlow<String?>(null)
 
+    /** Epoch ms when the current measurement times out (worst case; most finish
+     *  early). 0 = no measurement. Drives the hold-still countdown in the UI. */
+    val measurementDeadline = MutableStateFlow(0L)
+
     /** Latest readings surfaced on the watch face; NaN/0 = nothing yet. */
     val latestSkinTemp = MutableStateFlow(Float.NaN)
     val latestSpo2 = MutableStateFlow(0)

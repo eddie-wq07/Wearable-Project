@@ -18,6 +18,7 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.testwatch.R
+import com.example.testwatch.config.SensorConfig
 import com.example.testwatch.config.StorageConfig
 import com.example.testwatch.data.HrDatabase
 import com.example.testwatch.data.HrSample
@@ -177,6 +178,9 @@ class HrTrackingService : Service(), TrackerObserver, ConnectionObserver, Sensor
 
     private fun showMeasurementPrompt(text: String?) {
         TrackingState.currentMeasurement.value = text
+        TrackingState.measurementDeadline.value =
+            if (text == null) 0L
+            else System.currentTimeMillis() + SensorConfig.ON_DEMAND_TIMEOUT_SEC * 1000L
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         if (text == null) {
             nm.cancel(MEASURE_NOTIF_ID)

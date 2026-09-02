@@ -21,8 +21,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -40,6 +44,7 @@ import com.example.testwatch.ondemand.OnDemandSection
 import com.example.testwatch.presentation.theme.TestWatchTheme
 import com.example.testwatch.tracking.HrTrackingService
 import com.example.testwatch.tracking.TrackingState
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -129,6 +134,15 @@ fun WearApp() {
 /** Mid-measurement instruction — the one moment the participant must do something. */
 @Composable
 private fun MeasuringNotice(prompt: String) {
+    // Worst-case countdown; most measurements buzz to the next one before it hits 0.
+    val deadline by TrackingState.measurementDeadline.collectAsState()
+    var remainingSec by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(deadline) {
+        while (true) {
+            remainingSec = ((deadline - System.currentTimeMillis()) / 1000).coerceAtLeast(0)
+            delay(250)
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -140,6 +154,10 @@ private fun MeasuringNotice(prompt: String) {
             prompt,
             style = MaterialTheme.typography.titleMedium,
             textAlign = TextAlign.Center,
+        )
+        Text(
+            "${remainingSec}s",
+            style = MaterialTheme.typography.displaySmall,
         )
         Text(
             "Hold still until the next buzz",
