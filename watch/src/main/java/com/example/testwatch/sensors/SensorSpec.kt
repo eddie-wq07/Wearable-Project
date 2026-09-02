@@ -75,7 +75,7 @@ val SENSORS = listOf(
         )
     },
     SensorSpec("bia", HealthTrackerType.BIA_ON_DEMAND, SensorMode.ON_DEMAND,
-        needsProfile = true, prompt = "Body comp: fingers on both buttons") { dp ->
+        needsProfile = true, prompt = "Body comp 1 of 2: fingers on both buttons") { dp ->
         mapOf(
             "status" to dp.getValue(ValueKey.BiaSet.STATUS),
             "progress" to dp.getValue(ValueKey.BiaSet.PROGRESS),
@@ -92,7 +92,7 @@ val SENSORS = listOf(
         )
     },
     SensorSpec("mf_bia", HealthTrackerType.MF_BIA_ON_DEMAND, SensorMode.ON_DEMAND,
-        needsProfile = true, prompt = "Body comp: fingers on both buttons") { dp ->
+        needsProfile = true, prompt = "Body comp 2 of 2: fingers on both buttons") { dp ->
         mapOf(
             "status" to dp.getValue(ValueKey.MfBiaSet.STATUS),
             "progress" to dp.getValue(ValueKey.MfBiaSet.PROGRESS),
