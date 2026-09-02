@@ -101,7 +101,7 @@ case "$RESULT" in
     else
       echo "    WARNING: consolidate over SSH failed — the server cron merges within 15 min"
     fi
-    PID_DIR=$(echo "$LOGS" | grep "SFTP put" | tail -1 | sed -n 's|.*SFTP put /data1/wearables/\([^/]*\)/.*|\1|p')
+    PID_DIR=$(echo "$LOGS" | grep "SFTP put" | tail -1 | sed -n 's|.*SFTP put /data1/wearables/\(.*\)/[0-9-]\{10\}/parts/.*|\1|p')
     [ -n "$PID_DIR" ] && echo "    verify: ssh -p $SSH_PORT $SERVER 'ls -laR /data1/wearables/$PID_DIR/'"
     ;;
   failed)

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Merge watch upload parts into the two researcher-facing files per day folder.
 
-Watches upload small resumable slices into /data1/wearables/<pid>/<YYYY-MM-DD>/parts/.
+Watches upload small resumable slices into
+/data1/wearables/<study>/<pid>/<YYYY-MM-DD>/parts/ (study = "pilot" for now).
 This script (cron, every 15 min on MISR) folds them into:
 
     sensors_<pid>_continuous.json   heart_rate / ppg / accel / skin_temp sections
@@ -17,9 +18,12 @@ dropped; each reading carries its batch's human-readable `time`. Writes are atom
 import glob
 import json
 import os
+import re
 import tempfile
 
 BASE = "/data1/wearables"
+DEFAULT_STUDY = "pilot"
+PID_RE = re.compile(r"^\d+[A-Z]$")
 CONTINUOUS_SENSORS = ["ppg", "accel", "skin_temp"]
 ONDEMAND_SENSORS = ["ecg", "spo2", "bia", "mf_bia"]
 
@@ -90,15 +94,51 @@ def migrate(doc):
     return doc
 
 
-def day_dirs():
-    for pid in sorted(os.listdir(BASE)):
-        pdir = os.path.join(BASE, pid)
-        if not os.path.isdir(pdir) or pid.startswith("old"):
+def migrate_stray_pids():
+    """A watch still on a pre-study APK uploads flat to BASE/<pid>/ — fold those
+    into the default study folder so researchers only ever browse BASE/<study>/."""
+    for name in sorted(os.listdir(BASE)):
+        src = os.path.join(BASE, name)
+        if not (os.path.isdir(src) and PID_RE.match(name)):
             continue
-        for day in sorted(os.listdir(pdir)):
-            ddir = os.path.join(pdir, day)
-            if os.path.isdir(ddir) and len(day) == 10:
-                yield pid, day, ddir
+        dst_root = os.path.join(BASE, DEFAULT_STUDY, name)
+        os.makedirs(dst_root, exist_ok=True)
+        for day in sorted(os.listdir(src)):
+            s = os.path.join(src, day)
+            d = os.path.join(dst_root, day)
+            if not os.path.isdir(s):
+                continue
+            if not os.path.exists(d):
+                os.rename(s, d)
+            else:  # same day exists in both trees: move the slices, merge next pass
+                os.makedirs(os.path.join(d, "parts"), exist_ok=True)
+                for p in glob.glob(os.path.join(s, "parts", "*.json")):
+                    os.rename(p, os.path.join(d, "parts", os.path.basename(p)))
+                for leftover in (os.path.join(s, "parts"), s):
+                    try:
+                        os.rmdir(leftover)
+                    except OSError:
+                        print("stray %s not empty after merge; left in place" % leftover)
+        try:
+            os.rmdir(src)
+            print("migrated stray %s -> %s/%s" % (name, DEFAULT_STUDY, name))
+        except OSError:
+            pass
+
+
+def day_dirs():
+    for study in sorted(os.listdir(BASE)):
+        sdir = os.path.join(BASE, study)
+        if not os.path.isdir(sdir) or study.startswith("old"):
+            continue
+        for pid in sorted(os.listdir(sdir)):
+            pdir = os.path.join(sdir, pid)
+            if not os.path.isdir(pdir):
+                continue
+            for day in sorted(os.listdir(pdir)):
+                ddir = os.path.join(pdir, day)
+                if os.path.isdir(ddir) and len(day) == 10:
+                    yield pid, day, ddir
 
 
 def consolidate(pid, day, ddir):
@@ -154,6 +194,7 @@ def consolidate(pid, day, ddir):
 
 
 def main():
+    migrate_stray_pids()
     for pid, day, ddir in day_dirs():
         consolidate(pid, day, ddir)
 

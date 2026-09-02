@@ -14,8 +14,12 @@ object ServerConfig {
     const val USER = "edward"
 
     /** Base inbox on the server (group-writable). Each watch uploads into
-     *  "[REMOTE_BASE_DIR]/<participantId>/", created on first upload. */
+     *  "[REMOTE_BASE_DIR]/[STUDY]/<participantId>/", created on first upload. */
     const val REMOTE_BASE_DIR = "/data1/wearables"
+
+    /** Study phase every upload from this build belongs to. All pilot watches
+     *  land under wearables/pilot/; bump for the main study. */
+    const val STUDY = "pilot"
 
     /** Android Keystore alias of this watch's non-exportable EC P-256 keypair. */
     const val KEYSTORE_ALIAS = "watch_ssh_key"

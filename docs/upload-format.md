@@ -35,12 +35,12 @@ Data is organized by **when it was recorded, never by when it uploaded**. Each d
 folder contains exactly **two researcher-facing files**:
 
 ```
-/data1/wearables/<participantId>/<YYYY-MM-DD>/
+/data1/wearables/pilot/<participantId>/<YYYY-MM-DD>/
 ├── sensors_<participantId>_continuous.json   hr + ppg + accel + skin_temp, whole day
 └── sensors_<participantId>_ondemand.json     the day's measurement round
 ```
 
-Example: `/data1/wearables/1A/2026-09-01/sensors_1A_continuous.json`.
+Example: `/data1/wearables/pilot/1A/2026-09-01/sensors_1A_continuous.json`.
 
 Consolidated files have **one section per sensor, one reading per line**, identical
 keys on every line of a section, `time` always first. No epoch values (the SDK's raw

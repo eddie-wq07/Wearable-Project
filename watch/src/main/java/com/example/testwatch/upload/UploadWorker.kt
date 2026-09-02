@@ -49,7 +49,7 @@ class UploadWorker(
             return@withContext Result.success()
         }
         val participantId = ParticipantStore(applicationContext).participantId
-        val remoteDir = "${ServerConfig.REMOTE_BASE_DIR}/$participantId"
+        val remoteDir = "${ServerConfig.REMOTE_BASE_DIR}/${ServerConfig.STUDY}/$participantId"
 
         TrackingState.draining.value = true
         try {

@@ -33,9 +33,9 @@ phone relay; rationale in §10).
 
 ```
 ┌──────────────── Galaxy Watch 8 ────────────────┐         ┌────────── MISR server ──────────┐
-│ Samsung SDK: HR 1Hz + SensorEngine             │         │ /data1/wearables/<participant>/ │
-│  (ppg 25Hz, accel 25Hz, skin_temp,             │         │   hr_*.json                     │
-│   daily on-demand round via Measure button)    │         │   sensors_*.json                │
+│ Samsung SDK: HR 1Hz + SensorEngine             │         │ /data1/wearables/pilot/<pid>/   │
+│  (ppg 25Hz, accel 25Hz, skin_temp,             │         │   sensors_<pid>_continuous.json │
+│   daily on-demand round via Measure button)    │         │   sensors_<pid>_ondemand.json   │
 │   │                                            │         │                                 │
 │ HrTrackingService (foreground)                 │         │ (lab ingestion reads files      │
 │   │ writes each sample/batch                   │  SFTP   │  into SQLite)                   │
@@ -140,7 +140,7 @@ was already uploaded, ingest takes the newest file for the day).
 
 An upload pass drains in bounded slices (5 000 HR rows or ≤4 MB of sensor JSON
 per file), SFTP-putting one file per slice into
-`/data1/wearables/<participantId>/` and marking rows synced after each file, so
+`/data1/wearables/pilot/<participantId>/` and marking rows synced after each file, so
 an interrupted pass resumes where it stopped. JobScheduler stops long-running
 workers around the 10-minute mark — a multi-GB backlog therefore drains across
 several charge-window runs (at WiFi SFTP speeds each 10-min window moves
@@ -199,7 +199,7 @@ fits the budget with a wide margin either way.
    `watch/.../config/ServerConfig.kt` (committed — it contains no secrets). Revoke a lost
    watch by deleting its line from `authorized_keys`.
 2. **Upload directory** — nothing to create: the watch `mkdir`s its own
-   `/data1/wearables/<participantId>/` on first upload (the base dir is group-writable;
+   `/data1/wearables/pilot/<participantId>/` on first upload (the base dir is group-writable;
    shared-account model per docs/new-arch-build.md — no chroot, watches are not isolated
    from each other).
 3. **Server-side ingestion** — write a small script that scans `/data1/wearables/*/<YYYY-MM-DD>/` day folders for `hr_*_*.json` / `sensors_*_*.json` files and inserts into SQLite. Every timestamp in the files is a readable string in the format `MMM d yyyy, h:mm:ss a zzz` (US locale, watch-local timezone — handle both `PDT` and `PST`); there are no epoch values and no `watch_serial` in the uploads. The script parses `time` / `received_at` / `uploaded_at` back into integer epoch-ms columns for indexing. Suggested schema:
